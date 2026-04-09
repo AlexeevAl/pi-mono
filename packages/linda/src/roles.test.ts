@@ -1,38 +1,56 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getGuardrailConfigForRole } from "./guardrails.js";
 import { getSystemPrompt } from "./prompts/index.js";
 import { getToolsForRole, type PsfToolsContext } from "./tools.js";
-import { AGENT_POLICIES } from "./types.js";
+import { AGENT_POLICIES, type FirmConfig } from "./types.js";
+
+const mockFirm: FirmConfig = {
+	id: "test_firm",
+	name: "Test Firm",
+	activePacks: [],
+	channels: {
+		whatsappClient: { enabled: false, authDir: "", allowedUserIds: [] },
+		telegramAdmin: { enabled: false, botToken: "", allowedUserIds: [] },
+	},
+};
+
+const listSessionsMock = vi.fn(async () => [
+	{
+		sessionId: "s1",
+		userId: "u1",
+		channel: "whatsapp",
+		status: "active",
+		lastActivityAt: new Date().toISOString(),
+	},
+]);
+
+const viewSessionMock = vi.fn(async (id: string) => ({
+	sessionId: id,
+	userId: "u1",
+	channel: "whatsapp",
+	status: "active",
+	lastActivityAt: new Date().toISOString(),
+	collectedData: {},
+	history: [],
+}));
 
 // Minimal mock PSF client for tool creation
 const mockPsf: any = {
 	getTurn: async () => ({ status: "no_session", sessionId: null }),
 	postTurn: async () => ({ status: "no_session", sessionId: null }),
 	// Phase 2 admin methods
-	listSessions: async () => [
-		{
-			sessionId: "s1",
-			userId: "u1",
-			channel: "whatsapp",
-			status: "active",
-			lastActivityAt: new Date().toISOString(),
-		},
-	],
-	viewSession: async (id: string) => ({
-		sessionId: id,
-		userId: "u1",
-		channel: "whatsapp",
-		status: "active",
-		lastActivityAt: new Date().toISOString(),
-		collectedData: {},
-		history: [],
-	}),
+	listSessions: listSessionsMock,
+	viewSession: viewSessionMock,
 	addNote: async () => ({ ok: true }),
 	overrideField: async () => ({ ok: true }),
 	sendToClient: async () => ({ ok: true }),
 };
 
 const defaultCtx: PsfToolsContext = { getCurrentStep: () => undefined };
+
+beforeEach(() => {
+	vi.clearAllMocks();
+});
 
 // ============================================================================
 // Prompt selection
@@ -62,13 +80,13 @@ describe("getSystemPrompt", () => {
 
 describe("getToolsForRole", () => {
 	it("client gets only submit_data", () => {
-		const tools = getToolsForRole("client", mockPsf, "user1", "whatsapp", defaultCtx);
+		const tools = getToolsForRole("client", mockPsf, "user1", "whatsapp", defaultCtx, mockFirm);
 		const names = tools.map((t) => t.name);
 		expect(names).toEqual(["submit_data"]);
 	});
 
 	it("admin gets submit_data plus admin tools", () => {
-		const tools = getToolsForRole("admin", mockPsf, "admin1", "telegram", defaultCtx);
+		const tools = getToolsForRole("admin", mockPsf, "admin1", "telegram", defaultCtx, mockFirm);
 		const names = tools.map((t) => t.name);
 		expect(names).toContain("submit_data");
 		expect(names).toContain("list_sessions");
@@ -80,19 +98,31 @@ describe("getToolsForRole", () => {
 	});
 
 	it("admin has more tools than client", () => {
-		const clientTools = getToolsForRole("client", mockPsf, "u1", "whatsapp", defaultCtx);
-		const adminTools = getToolsForRole("admin", mockPsf, "u2", "telegram", defaultCtx);
+		const clientTools = getToolsForRole("client", mockPsf, "u1", "whatsapp", defaultCtx, mockFirm);
+		const adminTools = getToolsForRole("admin", mockPsf, "u2", "telegram", defaultCtx, mockFirm);
 		expect(adminTools.length).toBeGreaterThan(clientTools.length);
 	});
 
 	it("admin list_sessions calls PSF and returns sessions", async () => {
-		const tools = getToolsForRole("admin", mockPsf, "admin1", "telegram", defaultCtx);
+		const tools = getToolsForRole("admin", mockPsf, "admin1", "telegram", defaultCtx, mockFirm);
 		const listSessions = tools.find((t) => t.name === "list_sessions")!;
 		const result = await listSessions.execute("call1", {}, undefined);
 		const text = result.content[0].type === "text" ? result.content[0].text : "";
 		const parsed = JSON.parse(text);
 		expect(Array.isArray(parsed)).toBe(true);
 		expect(parsed[0]).toHaveProperty("sessionId");
+		expect(listSessionsMock).toHaveBeenCalledWith({
+			firmId: "test_firm",
+			status: "all",
+			limit: 20,
+		});
+	});
+
+	it("admin view_session calls PSF with tenant scope", async () => {
+		const tools = getToolsForRole("admin", mockPsf, "admin1", "telegram", defaultCtx, mockFirm);
+		const viewSession = tools.find((t) => t.name === "view_session")!;
+		await viewSession.execute("call1", { sessionId: "s1" }, undefined);
+		expect(viewSessionMock).toHaveBeenCalledWith("s1", "test_firm");
 	});
 });
 

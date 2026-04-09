@@ -7,9 +7,9 @@
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import { resolvePackId } from "./intents.js";
+import { assertPackAllowed, resolvePackId } from "./intents.js";
 import type { PsfClient } from "./psf.js";
-import type { AgentRole, BridgeRegistry, LindaChannel, TurnStep } from "./types.js";
+import type { AgentRole, BridgeRegistry, FirmConfig, LindaChannel, TurnStep } from "./types.js";
 import { validateForStep, validatePayload } from "./validation.js";
 
 export interface PsfToolsContext {
@@ -31,12 +31,13 @@ export function getToolsForRole(
 	userId: string,
 	channel: LindaChannel,
 	ctx: PsfToolsContext,
+	firm: FirmConfig,
 ): AgentTool[] {
 	switch (role) {
 		case "client":
-			return createClientTools(psf, userId, channel, ctx);
+			return createClientTools(psf, userId, channel, ctx, firm);
 		case "admin":
-			return [...createClientTools(psf, userId, channel, ctx), ...createAdminTools(psf, channel, ctx)];
+			return [...createClientTools(psf, userId, channel, ctx, firm), ...createAdminTools(psf, channel, ctx, firm)];
 	}
 }
 
@@ -44,7 +45,13 @@ export function getToolsForRole(
 // Client tools — submit_data (intake flow)
 // ============================================================================
 
-function createClientTools(psf: PsfClient, userId: string, channel: LindaChannel, ctx: PsfToolsContext): AgentTool[] {
+function createClientTools(
+	psf: PsfClient,
+	userId: string,
+	channel: LindaChannel,
+	ctx: PsfToolsContext,
+	firm: FirmConfig,
+): AgentTool[] {
 	const submitData: AgentTool = {
 		name: "submit_data",
 		label: "Submit extracted data to PSF",
@@ -127,7 +134,7 @@ function createClientTools(psf: PsfClient, userId: string, channel: LindaChannel
 		execute: async (_toolCallId, params: any, _signal) => {
 			let packId: string | undefined;
 			if (params.intent) {
-				packId = resolvePackId(params.intent);
+				packId = resolvePackId(params.intent, firm.id);
 				if (!packId) {
 					return {
 						content: [
@@ -136,6 +143,24 @@ function createClientTools(psf: PsfClient, userId: string, channel: LindaChannel
 								text: JSON.stringify({
 									error: "unknown_intent",
 									message: `Unknown intent: "${params.intent}". Valid intents: israel_exit, mortgage, relocation, linda_relocation`,
+								}),
+							},
+						],
+						details: {},
+					};
+				}
+				// Policy gate — reject pack if not permitted for this firm
+				if (!assertPackAllowed(firm, packId)) {
+					console.log(
+						`[Linda] 🚫 Pack "${packId}" not allowed for firm "${firm.id}". activePacks: [${firm.activePacks.join(", ")}]`,
+					);
+					return {
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify({
+									error: "pack_not_allowed",
+									message: `Pack "${packId}" is not available for this firm. Please clarify what you're looking for.`,
 								}),
 							},
 						],
@@ -165,6 +190,7 @@ function createClientTools(psf: PsfClient, userId: string, channel: LindaChannel
 				requestId: params.requestId,
 				userId,
 				channel,
+				firmId: firm.id,
 				userText: params.userText,
 				extractedPayload: validation.cleaned,
 				packId,
@@ -551,7 +577,7 @@ function hasNonEmptyString(value: unknown): boolean {
 // execute() calls PSF admin endpoints (which you'll wire when PSF supports them).
 // ============================================================================
 
-function createAdminTools(psf: PsfClient, _channel: LindaChannel, ctx: PsfToolsContext): AgentTool[] {
+function createAdminTools(psf: PsfClient, _channel: LindaChannel, ctx: PsfToolsContext, firm: FirmConfig): AgentTool[] {
 	const listSessions: AgentTool = {
 		name: "list_sessions",
 		label: "List active client sessions",
@@ -569,6 +595,7 @@ function createAdminTools(psf: PsfClient, _channel: LindaChannel, ctx: PsfToolsC
 		execute: async (_toolCallId, params: any, _signal) => {
 			try {
 				const sessions = await psf.listSessions({
+					firmId: firm.id,
 					status: params.status || "all",
 					limit: params.limit || 20,
 				});
@@ -595,7 +622,7 @@ function createAdminTools(psf: PsfClient, _channel: LindaChannel, ctx: PsfToolsC
 		}),
 		execute: async (_toolCallId, params: any, _signal) => {
 			try {
-				const detail = await psf.viewSession(params.sessionId);
+				const detail = await psf.viewSession(params.sessionId, firm.id);
 				return {
 					content: [{ type: "text", text: JSON.stringify(detail) }],
 					details: { detail },
@@ -686,7 +713,7 @@ function createAdminTools(psf: PsfClient, _channel: LindaChannel, ctx: PsfToolsC
 		}),
 		execute: async (_toolCallId, params: any, _signal) => {
 			try {
-				const detail = await psf.viewSession(params.sessionId);
+				const detail = await psf.viewSession(params.sessionId, firm.id);
 				const actorId =
 					detail.channel === "whatsapp"
 						? `user_wa_${detail.userId}`
@@ -735,6 +762,16 @@ export function createPsfTools(
 	userId: string,
 	channel: LindaChannel,
 	ctx: PsfToolsContext,
+	firm?: FirmConfig,
 ): AgentTool[] {
-	return getToolsForRole("client", psf, userId, channel, ctx);
+	const fallbackFirm: FirmConfig = firm ?? {
+		id: "dev",
+		name: "Dev",
+		activePacks: [],
+		channels: {
+			whatsappClient: { enabled: false, authDir: "", allowedUserIds: [] },
+			telegramAdmin: { enabled: false, botToken: "", allowedUserIds: [] },
+		},
+	};
+	return getToolsForRole("client", psf, userId, channel, ctx, fallbackFirm);
 }

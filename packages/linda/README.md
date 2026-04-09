@@ -62,3 +62,25 @@ npm run build -w @psf/linda; taskkill /F /IM node.exe; sleep 3; npx concurrently
 3. `concurrently` запускает параллельно два компонента с цветным логированием:
    - События с префиксом **`[PSF]`** — это Next.js бэкенд в соседней папке `../psf-engine-v2/products/product-template-canon`. Там крутятся API (например, `/api/linda/turn` и `/api/admin/sessions`), база данных и стейт-машина клиентского процесса.
    - События с префиксом **`[LINDA]`** — это исполняемый входной файл `packages/linda/dist/main.js`. В нём поднимается LLM-посредник, инструменты, WhatsApp-библиотека Baileys, long-polling Telegram и реестр прямого сообщения `BridgeRegistry`.
+
+## Milestone
+
+First tenant onboarded end-to-end (2026-04-09):
+- PSF `/api/health` отвечает 200 и `assertSessionStoreReady` проходит.
+- Новые Linda-сессии пишутся в `psf_canon_sessions` с корректным `firm_id`.
+- `actor_id` формируется tenant-scoped (`user_<channel>_<firmId>_<userId>`).
+- Client flow доходит до terminal step и `status=completed`.
+- `GET /api/admin/sessions?firmId=...` и `GET /api/admin/sessions/:id?firmId=...` работают в рамках tenant scope.
+- `POST /api/linda/session/reset` очищает tenant-channel state.
+
+## Known Issues
+
+- Telegram long polling: `getUpdates 409 Conflict`, если один и тот же bot token запущен в нескольких процессах.
+- Legacy данные: в исторических сессиях могут быть записи с `firm_id = null` (до tenant-режима).
+
+## Telegram Ops Runbook
+
+- Правило: один `TELEGRAM_BOT_TOKEN` должен обслуживаться только одним polling-процессом одновременно.
+- Перед запуском новой инстанции убедитесь, что старая остановлена.
+- Для dev-перезапуска используйте остановку процесса перед `linda` стартом.
+- Если нужна параллельность, используйте отдельные токены по фирмам или webhook-режим вместо polling.

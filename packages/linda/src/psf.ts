@@ -64,6 +64,7 @@ export class PsfClient {
 		const params = new URLSearchParams({
 			userId: req.userId,
 			channel: req.channel,
+			firmId: req.firmId,
 		});
 		return psfFetch<TurnResponse>(this.config, `/api/linda/turn?${params}`, "GET");
 	}
@@ -85,14 +86,16 @@ export class PsfClient {
 	/** List active intake sessions */
 	async listSessions(req: AdminListSessionsRequest): Promise<SessionSummary[]> {
 		const params = new URLSearchParams();
+		params.set("firmId", req.firmId);
 		if (req.status) params.set("status", req.status);
 		if (req.limit) params.set("limit", String(req.limit));
 		return psfFetch<SessionSummary[]>(this.config, `/api/admin/sessions?${params}`, "GET");
 	}
 
 	/** View detailed info about a specific session */
-	async viewSession(sessionId: string): Promise<SessionDetail> {
-		return psfFetch<SessionDetail>(this.config, `/api/admin/sessions/${sessionId}`, "GET");
+	async viewSession(sessionId: string, firmId: string): Promise<SessionDetail> {
+		const params = new URLSearchParams({ firmId });
+		return psfFetch<SessionDetail>(this.config, `/api/admin/sessions/${sessionId}?${params}`, "GET");
 	}
 
 	/** Add an internal note to a session */

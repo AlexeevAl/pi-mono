@@ -51,18 +51,99 @@ export const AGENT_POLICIES: Record<AgentRole, AgentPolicy> = {
 };
 
 // ----------------------------------------------------------------------------
+// Firm / Tenant Configuration
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// Channel configs — typed per-role, not just "whatsapp: boolean"
+// ----------------------------------------------------------------------------
+
+/**
+ * Client-facing channel (WhatsApp).
+ * Handles intake: receives user messages, runs the client agent pipeline.
+ */
+export interface FirmClientChannel {
+	enabled: boolean;
+	/** Baileys session storage dir — required when enabled */
+	authDir: string;
+	/** Phone number whitelist. Empty = allow all. */
+	allowedUserIds: string[];
+}
+
+/**
+ * Operator-facing channel (Telegram).
+ * Handles admin work: session browsing, overrides, messaging clients.
+ * Has its own tool surface, relaxed guardrails, and "all" session scope.
+ */
+export interface FirmAdminChannel {
+	enabled: boolean;
+	/** Telegram bot token — required when enabled */
+	botToken: string;
+	/** Telegram user ID whitelist (numeric). Empty = allow all — not recommended for prod. */
+	allowedUserIds: number[];
+}
+
+export interface FirmChannels {
+	/** WhatsApp = client agent */
+	whatsappClient: FirmClientChannel;
+	/** Telegram = admin agent */
+	telegramAdmin: FirmAdminChannel;
+}
+
+/**
+ * Per-firm configuration — loaded from env at startup.
+ * One Linda instance = one firm. No runtime switching.
+ *
+ * Two operational contours:
+ *   - channels.whatsappClient → intake, collect, guide (client role)
+ *   - channels.telegramAdmin  → browse, override, message (admin role)
+ */
+export interface FirmConfig {
+	/** Unique firm identifier (e.g. "acme_law", "pi_default") */
+	id: string;
+	/** Human-readable firm name — injected into system prompt */
+	name: string;
+	/**
+	 * Allowed PSF pack IDs for this firm.
+	 * Empty array = all packs allowed (useful for dev/single-firm setups).
+	 */
+	activePacks: string[];
+	/**
+	 * Default packId — skips intent detection entirely for single-scenario firms.
+	 * Must be present in activePacks (or activePacks must be empty).
+	 */
+	defaultPackId?: string;
+	/** UI/prompt language hint */
+	language?: "ru" | "en" | "he";
+	/** Conversation tone for system prompt */
+	toneProfile?: "formal" | "warm" | "neutral";
+	policies?: {
+		/** Override max turns per step for this firm's clients */
+		maxTurnsPerStep?: number;
+		/** If true, guardrail escalation triggers human handoff flag in PSF */
+		requireHumanHandoff?: boolean;
+		/** Custom escalation message (overrides built-in guardrail text) */
+		escalationMessage?: string;
+	};
+	/** Role-aware channel configuration */
+	channels: FirmChannels;
+}
+
+// ----------------------------------------------------------------------------
 // PSF Protocol — Request / Response shapes
 // ----------------------------------------------------------------------------
 
 export interface GetTurnRequest {
 	userId: string;
 	channel: LindaChannel;
+	firmId: string;
 }
 
 export interface PostTurnRequest {
 	requestId: string;
 	userId: string;
 	channel: LindaChannel;
+	firmId: string;
 	userText: string;
 	extractedPayload: Record<string, unknown>;
 	// Only needed when no session exists yet
@@ -73,6 +154,7 @@ export interface PostTurnRequest {
 export interface ResetSessionRequest {
 	userId: string;
 	channel: LindaChannel;
+	firmId: string;
 }
 
 // ----------------------------------------------------------------------------
@@ -159,6 +241,7 @@ export type ChatHandler = (message: ChannelMessage) => Promise<void>;
 // ----------------------------------------------------------------------------
 
 export interface AdminListSessionsRequest {
+	firmId: string;
 	status?: "active" | "terminal" | "all";
 	limit?: number;
 }
@@ -167,6 +250,8 @@ export interface SessionSummary {
 	sessionId: string;
 	userId: string;
 	channel: LindaChannel;
+	actorId?: string;
+	firmId?: string;
 	clientName?: string;
 	currentStepId?: string;
 	status: "active" | "terminal";
@@ -175,9 +260,12 @@ export interface SessionSummary {
 
 export interface AdminViewSessionRequest {
 	sessionId: string;
+	firmId: string;
 }
 
 export interface SessionDetail extends SessionSummary {
+	actorId?: string;
+	firmId?: string;
 	collectedData: Record<string, unknown>;
 	history: Array<{
 		ts: string;
