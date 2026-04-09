@@ -12,6 +12,8 @@ export type { TelegramAdapterConfig } from "./telegram.js";
 export { TelegramAdapter } from "./telegram.js";
 
 export type {
+	AgentPolicy,
+	AgentRole,
 	ChannelAdapter,
 	ChannelMessage,
 	ChatHandler,
@@ -25,3 +27,4 @@ export type {
 	TurnResponse,
 	TurnStep,
 } from "./types.js";
+export { AGENT_POLICIES } from "./types.js";

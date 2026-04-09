@@ -47,3 +47,18 @@ linda
 Если вы вносите изменения в код:
 1. Выполните `npm run build` для компиляции.
 2. Линда подхватит изменения автоматически, если вы используете `linda --tui`.
+
+### Совместный запуск с PSF Engine (dev-режим)
+
+Для локальной разработки кросс-канальных фич (Telegram + WhatsApp) и логики администратора (отправка сообщений клиентам напрямую) требуется одновременный запуск движка PSF и бота Линды. Рекомендуется использовать эту команду из корня монорепозитория (`pi-mono`):
+
+```bash
+npm run build -w @psf/linda; taskkill /F /IM node.exe; sleep 3; npx concurrently --names "PSF,LINDA" --prefix-colors "blue,green" "npm run --prefix ../psf-engine-v2 template:canon:web:dev" "node packages/linda/dist/main.js"
+```
+
+**Что именно запускается:**
+1. Сначала пересобирается (`build`) TypeScript-код Линды.
+2. Закрываются все старые Node-процессы через `taskkill /F /IM node.exe`, чтобы освободить порт 3033 и "отстрелить" зависшие подключения WhatsApp/Telegram.
+3. `concurrently` запускает параллельно два компонента с цветным логированием:
+   - События с префиксом **`[PSF]`** — это Next.js бэкенд в соседней папке `../psf-engine-v2/products/product-template-canon`. Там крутятся API (например, `/api/linda/turn` и `/api/admin/sessions`), база данных и стейт-машина клиентского процесса.
+   - События с префиксом **`[LINDA]`** — это исполняемый входной файл `packages/linda/dist/main.js`. В нём поднимается LLM-посредник, инструменты, WhatsApp-библиотека Baileys, long-polling Telegram и реестр прямого сообщения `BridgeRegistry`.

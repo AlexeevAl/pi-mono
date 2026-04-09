@@ -4,7 +4,18 @@
 // ============================================================================
 
 import { createHmac } from "node:crypto";
-import type { GetTurnRequest, PostTurnRequest, ResetSessionRequest, TurnResponse } from "./types.js";
+import type {
+	AdminAddNoteRequest,
+	AdminListSessionsRequest,
+	AdminOverrideFieldRequest,
+	AdminSendMessageRequest,
+	GetTurnRequest,
+	PostTurnRequest,
+	ResetSessionRequest,
+	SessionDetail,
+	SessionSummary,
+	TurnResponse,
+} from "./types.js";
 
 export interface PsfClientConfig {
 	baseUrl: string;
@@ -65,5 +76,41 @@ export class PsfClient {
 	/** Reset the session for a user. PSF handles cleanup. */
 	async resetSession(req: ResetSessionRequest): Promise<{ ok: boolean }> {
 		return psfFetch<{ ok: boolean }>(this.config, "/api/linda/session/reset", "POST", req);
+	}
+
+	// --------------------------------------------------------------------------
+	// Admin API — Phase 2
+	// --------------------------------------------------------------------------
+
+	/** List active intake sessions */
+	async listSessions(req: AdminListSessionsRequest): Promise<SessionSummary[]> {
+		const params = new URLSearchParams();
+		if (req.status) params.set("status", req.status);
+		if (req.limit) params.set("limit", String(req.limit));
+		return psfFetch<SessionSummary[]>(this.config, `/api/admin/sessions?${params}`, "GET");
+	}
+
+	/** View detailed info about a specific session */
+	async viewSession(sessionId: string): Promise<SessionDetail> {
+		return psfFetch<SessionDetail>(this.config, `/api/admin/sessions/${sessionId}`, "GET");
+	}
+
+	/** Add an internal note to a session */
+	async addNote(req: AdminAddNoteRequest): Promise<{ ok: boolean }> {
+		return psfFetch<{ ok: boolean }>(this.config, `/api/admin/sessions/${req.sessionId}/notes`, "POST", {
+			note: req.note,
+		});
+	}
+
+	/** Override a field value in a session */
+	async overrideField(req: AdminOverrideFieldRequest): Promise<{ ok: boolean }> {
+		return psfFetch<{ ok: boolean }>(this.config, `/api/admin/sessions/${req.sessionId}/override`, "POST", req);
+	}
+
+	/** Send a message to a client through their channel */
+	async sendToClient(req: AdminSendMessageRequest): Promise<{ ok: boolean }> {
+		return psfFetch<{ ok: boolean }>(this.config, `/api/admin/sessions/${req.sessionId}/message`, "POST", {
+			message: req.message,
+		});
 	}
 }

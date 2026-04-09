@@ -4,6 +4,7 @@
 // ============================================================================
 
 import type { IncomingMessage, LindaBot } from "./bot.js";
+import type { LindaBridge } from "./types.js";
 
 // ============================================================================
 // Minimal Telegram Bot API types
@@ -51,7 +52,24 @@ export interface TelegramAdapterConfig {
 	pollTimeoutSec?: number;
 }
 
-export class TelegramAdapter {
+export class TelegramAdapter implements LindaBridge {
+	readonly name = "telegram";
+
+	canHandle(actorId: string): boolean {
+		return actorId.startsWith("user_tg_");
+	}
+
+	async sendDirectMessage(actorId: string, text: string): Promise<boolean> {
+		const chatId = actorId.replace("user_tg_", "");
+		try {
+			await this.callApi("sendMessage", { chat_id: chatId, text });
+			return true;
+		} catch (err) {
+			console.error(`[Telegram] Bridge sendText error:`, err);
+			return false;
+		}
+	}
+
 	private readonly apiBase: string;
 	private readonly config: TelegramAdapterConfig;
 	private readonly bot: LindaBot;
@@ -72,6 +90,22 @@ export class TelegramAdapter {
 	async start(): Promise<void> {
 		// Clear any pending webhook so long-polling works
 		await this.callApi("deleteWebhook", {});
+
+		// Register admin quick commands
+		try {
+			await this.callApi("setMyCommands", {
+				commands: [
+					{ command: "sessions", description: "📋 Показать список активных сессий" },
+					{ command: "session", description: "🔍 Посмотреть всю информацию о конкретной сессии" },
+					{ command: "send", description: "✉️ Написать сообщение клиенту (Линда спросит кому и что)" },
+					{ command: "override", description: "✏️ Изменить поле в анкете клиента" },
+					{ command: "reset", description: "🔄 Сбросить текущий контекст разговора" },
+				],
+			});
+		} catch (err) {
+			console.error("[Telegram] Failed to register commands:", (err as Error).message);
+		}
+
 		this.running = true;
 		console.log("[Telegram] Adapter started — long-polling");
 		void this.pollLoop();
@@ -152,6 +186,7 @@ export class TelegramAdapter {
 			userId,
 			text: incomingText,
 			channel: "telegram",
+			role: "admin",
 			sendText: (reply, sugs) => this.sendText(chatId, reply, sugs),
 			sendTyping: () => this.sendTyping(chatId),
 		};

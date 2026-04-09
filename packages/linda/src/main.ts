@@ -5,14 +5,18 @@
 // Reads env, wires PsfClient + LindaBot + TelegramAdapter, starts.
 // ============================================================================
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Agent } from "@mariozechner/pi-agent-core";
 import { getModel } from "@mariozechner/pi-ai";
 import { LindaBot } from "./bot.js";
-import { LINDA_SYSTEM_PROMPT } from "./prompt.js";
+import { getSystemPrompt } from "./prompts/index.js";
 import { PsfClient } from "./psf.js";
 import { TelegramAdapter } from "./telegram.js";
 import { createPsfTools } from "./tools.js";
 import { LindaTui } from "./tui.js";
+import { BridgeRegistry } from "./types.js";
+import { WhatsAppAdapter } from "./whatsapp.js";
 
 // ============================================================================
 // Environment
@@ -53,11 +57,16 @@ function parseApiKey(raw: string | undefined): Record<string, string> {
 import { loadEnvFile } from "node:process";
 
 async function main(): Promise<void> {
-	// Try loading .env from CWD
-	try {
-		loadEnvFile(".env");
-	} catch {
-		// Ignore if .env doesn't exist
+	// Try loading .env from CWD, then from the package root relative to this script
+	const envPaths = [".env", path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".env")];
+
+	for (const envPath of envPaths) {
+		try {
+			loadEnvFile(envPath);
+			break; // Stop after first successful load
+		} catch {
+			// Try next
+		}
 	}
 
 	// -- PSF connection --
@@ -96,12 +105,13 @@ async function main(): Promise<void> {
 
 	// -- TUI Mode --
 	if (process.argv.includes("--tui")) {
-		const tools = createPsfTools(psf, "tui_user", "tui");
+		const tui_role = process.argv.includes("--admin") ? ("admin" as const) : ("client" as const);
+		const tools = createPsfTools(psf, "tui_user", "tui", { getCurrentStep: () => undefined });
 		const model = getModel(llmProvider as any, llmModel);
 
 		const agent = new Agent({
 			initialState: {
-				systemPrompt: LINDA_SYSTEM_PROMPT,
+				systemPrompt: getSystemPrompt(tui_role),
 				model,
 				thinkingLevel: "off",
 				tools,
@@ -116,12 +126,21 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	// -- WhatsApp --
+	const whatsappAuthDir = optionalEnv("WHATSAPP_AUTH_DIR") ?? "./.linda/auth-whatsapp";
+	const waAllowedIdsRaw = optionalEnv("WHATSAPP_ALLOWED_USER_IDS");
+	const waAllowedUserIds = waAllowedIdsRaw ? waAllowedIdsRaw.split(",").map((s) => s.trim()) : [];
+
+	// -- Bridges --
+	const bridgeRegistry = new BridgeRegistry();
+
 	// -- Assemble --
 	const bot = new LindaBot({
 		psf,
 		provider: llmProvider,
 		model: llmModel,
 		getApiKey: async (provider) => apiKeys[provider],
+		bridge: bridgeRegistry,
 	});
 
 	const telegram = new TelegramAdapter(
@@ -132,10 +151,22 @@ async function main(): Promise<void> {
 		bot,
 	);
 
+	const whatsapp = new WhatsAppAdapter(
+		{
+			authDir: whatsappAuthDir,
+			allowedUserIds: waAllowedUserIds,
+		},
+		bot,
+	);
+
+	bridgeRegistry.register(telegram);
+	bridgeRegistry.register(whatsapp);
+
 	// -- Graceful shutdown --
 	const shutdown = (): void => {
 		console.log("\n[Linda] Shutting down…");
 		telegram.stop();
+		whatsapp.stop();
 		process.exit(0);
 	};
 	process.on("SIGINT", shutdown);
@@ -143,6 +174,7 @@ async function main(): Promise<void> {
 
 	// -- Start --
 	await telegram.start();
+	await whatsapp.start();
 }
 
 main().catch((err) => {
