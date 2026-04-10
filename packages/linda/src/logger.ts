@@ -46,6 +46,9 @@ export interface TurnLog {
 	/** PSF session ID (if known) */
 	sessionId: string | null;
 
+	/** Firm / tenant identifier — primary key for log aggregation */
+	firmId: string;
+
 	/** User / chat identifiers */
 	userId: string;
 	chatId: string;
@@ -133,7 +136,14 @@ export class TurnLogger {
 	private startTime: number;
 	private initialStepId?: string;
 
-	constructor(msg: { messageId: string; userId: string; chatId: string; channel: LindaChannel; role: AgentRole }) {
+	constructor(msg: {
+		messageId: string;
+		userId: string;
+		chatId: string;
+		channel: LindaChannel;
+		role: AgentRole;
+		firmId: string;
+	}) {
 		this.startTime = Date.now();
 		this.entry = {
 			ts: new Date().toISOString(),
@@ -141,6 +151,7 @@ export class TurnLogger {
 			event: "turn",
 			turnId: msg.messageId,
 			sessionId: null,
+			firmId: msg.firmId,
 			userId: redactForLog(msg.userId, "userId"),
 			chatId: redactForLog(msg.chatId, "chatId"),
 			channel: msg.channel,

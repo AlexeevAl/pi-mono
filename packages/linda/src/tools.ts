@@ -771,6 +771,7 @@ export function createPsfTools(
 		channels: {
 			whatsappClient: { enabled: false, authDir: "", allowedUserIds: [] },
 			telegramAdmin: { enabled: false, botToken: "", allowedUserIds: [] },
+			webChat: { enabled: false, port: 3034, role: "client", allowedOrigins: "*" },
 		},
 	};
 	return getToolsForRole("client", psf, userId, channel, ctx, fallbackFirm);

@@ -3,7 +3,7 @@
 // PSF ↔ Linda Protocol Contract
 // ============================================================================
 
-export type LindaChannel = "telegram" | "discord" | "whatsapp" | "tui";
+export type LindaChannel = "telegram" | "discord" | "whatsapp" | "tui" | "web";
 
 // ----------------------------------------------------------------------------
 // Agent Roles & Policies
@@ -83,11 +83,29 @@ export interface FirmAdminChannel {
 	allowedUserIds: number[];
 }
 
+/**
+ * Web chat channel.
+ * HTTP server served by Linda itself — GET / serves the chat UI,
+ * POST /chat is the message API.
+ * Role configurable: default = "client".
+ */
+export interface FirmWebChannel {
+	enabled: boolean;
+	/** HTTP port Linda listens on (default: 3034) */
+	port: number;
+	/** Agent role for web sessions: "client" | "admin" (default: "client") */
+	role: "client" | "admin";
+	/** Allowed CORS origins, comma-separated. "*" = all. */
+	allowedOrigins: string;
+}
+
 export interface FirmChannels {
 	/** WhatsApp = client agent */
 	whatsappClient: FirmClientChannel;
 	/** Telegram = admin agent */
 	telegramAdmin: FirmAdminChannel;
+	/** Web chat = HTTP-served chat widget */
+	webChat: FirmWebChannel;
 }
 
 /**

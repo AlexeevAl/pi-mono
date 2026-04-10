@@ -3,7 +3,11 @@
 //
 // Business logic: intent → packId mapping lives HERE, not in the prompt.
 // Add new intents by adding entries to INTENT_REGISTRY.
+// Per-firm overrides live in firm-intents.ts — keep this file clean.
 // ============================================================================
+
+import { FIRM_INTENT_OVERRIDES } from "./firm-intents.js";
+import type { FirmConfig } from "./types.js";
 
 export interface IntentEntry {
 	packId: string;
@@ -46,10 +50,17 @@ const PACK_ID_ALIASES: Record<string, string> = {
 
 /**
  * Resolve an intent string (from LLM) to a packId.
+ * Firm overrides are checked first, then the global registry.
  * Returns undefined if the intent is unknown.
  */
-export function resolvePackId(intent: string): string | undefined {
-	// Direct match
+export function resolvePackId(intent: string, firmId?: string): string | undefined {
+	// Firm-level override takes priority
+	if (firmId) {
+		const firmEntry = FIRM_INTENT_OVERRIDES[firmId]?.[intent];
+		if (firmEntry) return firmEntry.packId;
+	}
+
+	// Global registry — direct match
 	const entry = INTENT_REGISTRY[intent];
 	if (entry) return entry.packId;
 
@@ -57,7 +68,7 @@ export function resolvePackId(intent: string): string | undefined {
 	const alias = PACK_ID_ALIASES[intent];
 	if (alias) return alias;
 
-	// Try matching with _v1 suffix stripped, or as-is if it's already a packId
+	// PackId passthrough — if the string is already a known packId, return as-is
 	for (const e of Object.values(INTENT_REGISTRY)) {
 		if (e.packId === intent) return e.packId;
 	}
@@ -66,23 +77,39 @@ export function resolvePackId(intent: string): string | undefined {
 }
 
 /**
+ * Check whether a packId is permitted for this firm.
+ * Empty activePacks means "all allowed" (useful for dev / single-firm setups).
+ */
+export function assertPackAllowed(firm: FirmConfig, packId: string): boolean {
+	if (!firm.activePacks || firm.activePacks.length === 0) return true;
+	return firm.activePacks.includes(packId);
+}
+
+/**
  * Fallback: try to detect intent from raw user text using keyword matching.
+ * Merges firm overrides into the registry before scoring.
  * Returns the packId or undefined.
  */
-export function detectIntentFromText(text: string): string | undefined {
+export function detectIntentFromText(text: string, firmId?: string): string | undefined {
 	const lower = text.toLowerCase();
 
+	// Merge firm overrides (if any) on top of the global registry.
+	// Cast is safe: Partial<Record<string, IntentEntry>> values that are undefined
+	// won't be iterated — the for-of loop skips them via the keyword filter.
+	const firmOverrides = firmId ? (FIRM_INTENT_OVERRIDES[firmId] ?? {}) : {};
+	const effectiveRegistry = { ...INTENT_REGISTRY, ...firmOverrides } as Record<string, IntentEntry>;
+
 	// Score each intent by keyword matches
-	let bestIntent: string | undefined;
+	let bestPackId: string | undefined;
 	let bestScore = 0;
 
-	for (const [, entry] of Object.entries(INTENT_REGISTRY)) {
+	for (const [, entry] of Object.entries(effectiveRegistry)) {
 		const score = entry.keywords.filter((kw) => lower.includes(kw)).length;
 		if (score > bestScore) {
 			bestScore = score;
-			bestIntent = entry.packId;
+			bestPackId = entry.packId;
 		}
 	}
 
-	return bestIntent;
+	return bestPackId;
 }

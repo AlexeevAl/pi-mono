@@ -1,86 +1,144 @@
-# 🤖 Linda Conversational Agent
+# Linda Conversational Agent
 
-Linda — это интеллектуальный слой между пользователем и **PSF Engine (Canon)**. Она умеет работать как в Telegram, так и через продвинутый терминальный интерфейс (TUI).
+Интеллектуальный слой между пользователем и **PSF Engine (Canon)**. Работает в Telegram, WhatsApp и через терминальный интерфейс (TUI).
 
-## 🚀 Быстрый старт
+**Архитектура:** один Linda-инстанс = одна фирма. Tenancy задаётся на уровне деплоя через `FIRM_ID`.
 
-### 1. Установка (Глобально)
-Чтобы запускать Линду из любого места вашей системы:
+---
+
+## Быстрый старт
+
+### 1. Сборка
+
 ```bash
 cd packages/linda
 npm install
 npm run build
-npm link
+npm link   # опционально — чтобы запускать linda/linda-create-firm глобально
 ```
 
-### 2. Настройка окружения
-Создайте файл `.env` в директории, откуда планируете запускать Линду:
+### 2. Создание .env для фирмы
+
+Интерактивный wizard (3 блока: фирма / WhatsApp / Telegram):
+
+```bash
+linda-create-firm
+```
+
+Или non-interactive для CI / скриптов:
+
+```bash
+linda-create-firm --config='{"firmId":"acme_law_il","firmName":"Acme Law","activePacks":["relocation_v1"],"psfBaseUrl":"http://localhost:3000","psfSecret":"secret","tgEnabled":true,"tgToken":"bot:123","tgAllowedUserIds":"253432559","waEnabled":false}'
+```
+
+Или скопировать `.env.example` и заполнить вручную — там три блока с комментариями.
+
+### 3. Запуск
+
+```bash
+linda          # daemon-режим: Telegram + WhatsApp (по конфигу)
+linda --tui    # терминальный UI (client role)
+linda --tui --admin  # TUI в admin role
+```
+
+---
+
+## Структура .env
+
 ```env
-PSF_BASE_URL=http://localhost:3033
-PSF_SHARED_SECRET=ваш_секрет
-TELEGRAM_BOT_TOKEN=ваш_токен
+# Block 1 — Firm Identity
+FIRM_ID=acme_law_il
+FIRM_NAME=Acme Law IL
+FIRM_ACTIVE_PACKS=relocation_v1
+FIRM_DEFAULT_PACK_ID=relocation_v1   # пропустить intent detection
+FIRM_LANGUAGE=ru
+FIRM_TONE=warm
+
+# Block 2 — Client Agent (WhatsApp)
+WHATSAPP_ENABLED=false
+WHATSAPP_AUTH_DIR=./.linda/auth/acme_law_il-whatsapp
+# WHATSAPP_ALLOWED_USER_IDS=+972501234567
+
+# Block 3 — Admin Agent (Telegram)
+TELEGRAM_ADMIN_ENABLED=true
+TELEGRAM_BOT_TOKEN=bot:...
+TELEGRAM_ALLOWED_USER_IDS=253432559   # рекомендуется для prod
+
+# Infrastructure
+PSF_BASE_URL=http://localhost:3000
+PSF_SHARED_SECRET=your_secret
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-4-5
-ANTHROPIC_API_KEY=ваш_ключ
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-## 🖥 Режимы работы
+---
 
-### Терминальный интерфейс (TUI)
-Тот самый «хакерский» вид, как у основного агента Pi:
-```bash
-linda --tui
-```
-*Управление:*
-- `Enter`: отправить сообщение.
-- `Стрелки Вверх/Вниз`: навигация по истории команд.
-- `Ctrl+C`: выход.
+## Совместный запуск PSF + Linda (dev)
 
-### Telegram Бот
-Запуск в режиме фонового бота:
-```bash
-linda
-```
-Линда автоматически добавит кнопки с предложениями (suggestions) из сценария PSF.
-
-## 🛠 Разработка
-Если вы вносите изменения в код:
-1. Выполните `npm run build` для компиляции.
-2. Линда подхватит изменения автоматически, если вы используете `linda --tui`.
-
-### Совместный запуск с PSF Engine (dev-режим)
-
-Для локальной разработки кросс-канальных фич (Telegram + WhatsApp) и логики администратора (отправка сообщений клиентам напрямую) требуется одновременный запуск движка PSF и бота Линды. Рекомендуется использовать эту команду из корня монорепозитория (`pi-mono`):
+Из корня монорепозитория:
 
 ```bash
 npm run build -w @psf/linda; taskkill /F /IM node.exe; sleep 3; npx concurrently --names "PSF,LINDA" --prefix-colors "blue,green" "npm run --prefix ../psf-engine-v2 template:canon:web:dev" "node packages/linda/dist/main.js"
 ```
 
-**Что именно запускается:**
-1. Сначала пересобирается (`build`) TypeScript-код Линды.
-2. Закрываются все старые Node-процессы через `taskkill /F /IM node.exe`, чтобы освободить порт 3033 и "отстрелить" зависшие подключения WhatsApp/Telegram.
-3. `concurrently` запускает параллельно два компонента с цветным логированием:
-   - События с префиксом **`[PSF]`** — это Next.js бэкенд в соседней папке `../psf-engine-v2/products/product-template-canon`. Там крутятся API (например, `/api/linda/turn` и `/api/admin/sessions`), база данных и стейт-машина клиентского процесса.
-   - События с префиксом **`[LINDA]`** — это исполняемый входной файл `packages/linda/dist/main.js`. В нём поднимается LLM-посредник, инструменты, WhatsApp-библиотека Baileys, long-polling Telegram и реестр прямого сообщения `BridgeRegistry`.
+- **`[PSF]`** — Next.js бэкенд в `../psf-engine-v2/products/product-template-canon`: API routes, Neon DB, state machine
+- **`[LINDA]`** — `packages/linda/dist/main.js`: LLM, tools, Baileys, Telegram polling, BridgeRegistry
 
-## Milestone
+---
 
-First tenant onboarded end-to-end (2026-04-09):
-- PSF `/api/health` отвечает 200 и `assertSessionStoreReady` проходит.
-- Новые Linda-сессии пишутся в `psf_canon_sessions` с корректным `firm_id`.
-- `actor_id` формируется tenant-scoped (`user_<channel>_<firmId>_<userId>`).
-- Client flow доходит до terminal step и `status=completed`.
-- `GET /api/admin/sessions?firmId=...` и `GET /api/admin/sessions/:id?firmId=...` работают в рамках tenant scope.
-- `POST /api/linda/session/reset` очищает tenant-channel state.
+## Tenant Isolation
 
-## Known Issues
+Каждый запрос к PSF несёт `firmId`:
 
-- Telegram long polling: `getUpdates 409 Conflict`, если один и тот же bot token запущен в нескольких процессах.
-- Legacy данные: в исторических сессиях могут быть записи с `firm_id = null` (до tenant-режима).
+| Концепт | Формат |
+|---|---|
+| Chat key (guardrails, memory) | `${firmId}:${channel}:${chatId}` |
+| Actor ID (PSF session) | `user_${ch}_${firmId}_${userId}` |
+| Channel key (PSF state) | `${firmId}:${channel}:${userId}` |
 
-## Telegram Ops Runbook
+Пакеты из `FIRM_ACTIVE_PACKS` — это allowlist. `assertPackAllowed()` блокирует любую попытку запустить неразрешённый pack до вызова PSF.
 
-- Правило: один `TELEGRAM_BOT_TOKEN` должен обслуживаться только одним polling-процессом одновременно.
-- Перед запуском новой инстанции убедитесь, что старая остановлена.
-- Для dev-перезапуска используйте остановку процесса перед `linda` стартом.
-- Если нужна параллельность, используйте отдельные токены по фирмам или webhook-режим вместо polling.
+---
+
+## Роли и каналы
+
+| | Client (WhatsApp) | Admin (Telegram) |
+|---|---|---|
+| Prompt | Тёплый, пошаговый | Деловой, прямой |
+| Tools | `submit_data` | + `list_sessions`, `view_session`, `add_note`, `override_field`, `send_to_client` |
+| Guardrails | Строгие | Расслабленные |
+| Intent fallback | Активен | Отключён |
+
+---
+
+## Ops
+
+### Telegram polling
+Правило: один `TELEGRAM_BOT_TOKEN` — один polling-процесс. При конфликте (409) убедитесь, что старый процесс остановлен перед запуском нового.
+
+### Legacy данные
+Исторические сессии (до tenant-режима) могут иметь `firm_id = null` в БД. Это не ломает текущий flow, но они не попадут в `GET /api/admin/sessions?firmId=...`.
+
+---
+
+## Тесты
+
+```bash
+npm test
+```
+
+6 файлов, 84+ тестов: validation, redact, guardrails, roles (с FirmConfig), intents, logger.
+
+---
+
+## Документация
+
+Подробная архитектурная документация: [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+
+- Turn pipeline (8 шагов)
+- Guardrails scoring algorithm
+- Validation layers
+- PSF protocol (все 3 endpoint'а с firmId)
+- Полная таблица env vars
+- Tech debt / known gaps

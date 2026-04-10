@@ -8,6 +8,7 @@ const mockMsg = {
 	chatId: "chat_87654321",
 	channel: "telegram" as const,
 	role: "client" as const,
+	firmId: "test_firm",
 };
 
 describe("TurnLogger", () => {

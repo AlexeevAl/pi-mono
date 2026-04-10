@@ -38,3 +38,6 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+.linda/
+.claude/
+packages/linda/.run/

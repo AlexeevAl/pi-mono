@@ -12,8 +12,9 @@ async function runTest() {
 		sharedSecret: process.env.PSF_SHARED_SECRET || "psf_hermes_secret_123",
 	});
 
-	const userId = "test_user_" + Date.now();
+	const userId = `test_user_${Date.now()}`;
 	const channel = "whatsapp";
+	const firmId = process.env.FIRM_ID ?? "pi_default";
 
 	console.log("🚀 Starting Scenario Test: relocation_v1");
 	console.log("----------------------------------------");
@@ -24,6 +25,7 @@ async function runTest() {
 		requestId: "req_1",
 		userId,
 		channel,
+		firmId,
 		userText: "Я хочу переехать",
 		packId: "relocation_v1",
 		extractedPayload: {},
@@ -34,7 +36,7 @@ async function runTest() {
 		console.log(`Bot Question: ${turn1.step.uiHints?.suggestedPrompt}`);
 
 		if (turn1.step.id !== "capture_contact") {
-			console.error("❌ Expected capture_contact, but got " + turn1.step.id);
+			console.error(`❌ Expected capture_contact, but got ${turn1.step.id}`);
 		} else {
 			console.log("✅ Correctly started at capture_contact");
 		}
@@ -46,6 +48,7 @@ async function runTest() {
 		requestId: "req_2",
 		userId,
 		channel,
+		firmId,
 		userText: "Меня зовут Иван, телефон +79111234567",
 		extractedPayload: {
 			clientName: "Иван",
@@ -59,7 +62,7 @@ async function runTest() {
 		console.log(`Bot Question: ${turn2.step.uiHints?.suggestedPrompt}`);
 
 		if (turn2.step.id !== "capture_situation") {
-			console.error("❌ Expected capture_situation, but got " + turn2.step.id);
+			console.error(`❌ Expected capture_situation, but got ${turn2.step.id}`);
 		} else {
 			console.log("✅ Correctly moved to capture_situation");
 		}
@@ -71,6 +74,7 @@ async function runTest() {
 		requestId: "req_3",
 		userId,
 		channel,
+		firmId,
 		userText: "Хочу в Германию через полгода",
 		extractedPayload: {
 			targetCountry: "Германия",
@@ -84,7 +88,7 @@ async function runTest() {
 		console.log(`Bot Question: ${turn3.step.uiHints?.suggestedPrompt}`);
 
 		if (turn3.step.id !== "capture_tax_profile") {
-			console.error("❌ Expected capture_tax_profile, but got " + turn3.step.id);
+			console.error(`❌ Expected capture_tax_profile, but got ${turn3.step.id}`);
 		} else {
 			console.log("✅ Correctly moved to capture_tax_profile");
 		}

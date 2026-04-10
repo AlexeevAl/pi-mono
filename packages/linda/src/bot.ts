@@ -13,16 +13,17 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import { getModel } from "@mariozechner/pi-ai";
 import { ConversationGuardrails, getGuardrailConfigForRole, guardrailHint, type TurnSignals } from "./guardrails.js";
-import { detectIntentFromText } from "./intents.js";
+import { assertPackAllowed, detectIntentFromText } from "./intents.js";
 import { type ReplySource, TurnLogger } from "./logger.js";
 import { getSystemPrompt } from "./prompts/index.js";
 import type { PsfClient } from "./psf.js";
 import { getToolsForRole, type PsfToolsContext } from "./tools.js";
-import type { AgentRole, BridgeRegistry, LindaChannel, TurnResponse, TurnStep } from "./types.js";
+import type { AgentRole, BridgeRegistry, FirmConfig, LindaChannel, TurnResponse, TurnStep } from "./types.js";
 import type { ValidationRejectReason } from "./validation.js";
 
 export interface LindaBotConfig {
 	psf: PsfClient;
+	firm: FirmConfig;
 	model?: string;
 	provider?: string;
 	getApiKey: (provider: string) => Promise<string | undefined>;
@@ -82,7 +83,7 @@ export class LindaBot {
 	private async process(msg: IncomingMessage, state: ChatState): Promise<void> {
 		await msg.sendTyping().catch(() => {});
 
-		const log = new TurnLogger(msg);
+		const log = new TurnLogger({ ...msg, firmId: this.config.firm.id });
 		let replySource: ReplySource = "none";
 
 		// ---- Step 1: Runtime pre-calls PSF ----
@@ -91,6 +92,7 @@ export class LindaBot {
 			psfState = await this.config.psf.getTurn({
 				userId: msg.userId,
 				channel: msg.channel,
+				firmId: this.config.firm.id,
 			});
 			log.setPsfState(psfState);
 		} catch (err) {
@@ -105,7 +107,7 @@ export class LindaBot {
 		state.currentMessage = { messageId: msg.messageId, userText: msg.text };
 
 		// ---- Step 2: Guardrails pre-check ----
-		const chatKey = `${msg.channel}:${msg.chatId}`;
+		const chatKey = `${this.config.firm.id}:${msg.channel}:${msg.chatId}`;
 		const currentStepId = psfState.status === "active" ? psfState.step.id : undefined;
 		const preCheck = state.guardrails.checkBeforeTurn(chatKey, currentStepId);
 		log.setGuardrailAction(preCheck);
@@ -174,18 +176,27 @@ export class LindaBot {
 
 		// ---- Step 5: Post-process fallback (client only — admin doesn't need intent detection) ----
 		if (state.role === "client" && psfState.status === "no_session" && !submitDataCalled) {
-			const fallbackPackId = detectIntentFromText(msg.text);
-			log.setFallback(fallbackPackId, false);
+			const firm = this.config.firm;
 
-			if (fallbackPackId) {
+			// If firm has a defaultPackId, skip detection entirely
+			const fallbackPackId = firm.defaultPackId ?? detectIntentFromText(msg.text, firm.id);
+
+			// Policy gate — don't use a pack the firm hasn't enabled
+			const allowedFallbackPackId =
+				fallbackPackId && assertPackAllowed(firm, fallbackPackId) ? fallbackPackId : undefined;
+
+			log.setFallback(allowedFallbackPackId, false);
+
+			if (allowedFallbackPackId) {
 				try {
 					const turn = await this.config.psf.postTurn({
 						requestId: msg.messageId,
 						userId: msg.userId,
 						channel: msg.channel,
+						firmId: firm.id,
 						userText: msg.text,
 						extractedPayload: {},
-						packId: fallbackPackId,
+						packId: allowedFallbackPackId,
 					});
 
 					if (turn.status === "active" && turn.step.uiHints?.suggestedPrompt) {
@@ -246,7 +257,7 @@ export class LindaBot {
 	// --------------------------------------------------------------------------
 
 	private getOrCreateChat(msg: IncomingMessage): ChatState {
-		const key = `${msg.channel}:${msg.chatId}`;
+		const key = `${this.config.firm.id}:${msg.channel}:${msg.chatId}`;
 		let state = this.chats.get(key);
 
 		if (!state) {
@@ -261,9 +272,9 @@ export class LindaBot {
 				bridge: this.config.bridge,
 			};
 
-			// Role-aware: prompt, tools, guardrails
-			const systemPrompt = getSystemPrompt(role);
-			const tools = getToolsForRole(role, this.config.psf, msg.userId, msg.channel, toolCtx);
+			// Role-aware + firm-aware: prompt, tools, guardrails
+			const systemPrompt = getSystemPrompt(role, this.config.firm);
+			const tools = getToolsForRole(role, this.config.psf, msg.userId, msg.channel, toolCtx, this.config.firm);
 			const guardrails = new ConversationGuardrails(getGuardrailConfigForRole(role));
 
 			const model = getModel((this.config.provider ?? "anthropic") as any, this.config.model ?? "claude-sonnet-4-5");
@@ -309,13 +320,13 @@ export class LindaBot {
 	// --------------------------------------------------------------------------
 
 	async resetChat(chatId: string, channel: LindaChannel, userId: string): Promise<void> {
-		const key = `${channel}:${chatId}`;
+		const key = `${this.config.firm.id}:${channel}:${chatId}`;
 		const state = this.chats.get(key);
 		if (state) {
 			state.agent.reset();
 			state.guardrails.reset(key);
 		}
-		await this.config.psf.resetSession({ userId, channel });
+		await this.config.psf.resetSession({ userId, channel, firmId: this.config.firm.id });
 	}
 }
 

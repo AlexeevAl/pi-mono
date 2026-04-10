@@ -4,7 +4,7 @@
 // ============================================================================
 
 import type { IncomingMessage, LindaBot } from "./bot.js";
-import type { LindaBridge } from "./types.js";
+import type { FirmConfig, LindaBridge } from "./types.js";
 
 // ============================================================================
 // Minimal Telegram Bot API types
@@ -50,6 +50,8 @@ export interface TelegramAdapterConfig {
 	allowedUserIds?: number[];
 	/** Long-poll timeout in seconds (default: 30) */
 	pollTimeoutSec?: number;
+	/** Firm config — used for /firm command */
+	firm?: FirmConfig;
 }
 
 export class TelegramAdapter implements LindaBridge {
@@ -95,6 +97,7 @@ export class TelegramAdapter implements LindaBridge {
 		try {
 			await this.callApi("setMyCommands", {
 				commands: [
+					{ command: "firm", description: "🏢 Настройки текущей фирмы" },
 					{ command: "sessions", description: "📋 Показать список активных сессий" },
 					{ command: "session", description: "🔍 Посмотреть всю информацию о конкретной сессии" },
 					{ command: "send", description: "✉️ Написать сообщение клиенту (Линда спросит кому и что)" },
@@ -170,6 +173,12 @@ export class TelegramAdapter implements LindaBridge {
 			return;
 		}
 
+		// /firm command — show current firm settings
+		if (text === "/firm") {
+			await this.sendText(chatId, this.buildFirmCard());
+			return;
+		}
+
 		// /reset command
 		if (text === "/reset") {
 			await this.bot.resetChat(chatId, "telegram", userId);
@@ -192,6 +201,44 @@ export class TelegramAdapter implements LindaBridge {
 		};
 
 		await this.bot.handleMessage(incoming);
+	}
+
+	// --------------------------------------------------------------------------
+	// /firm card
+	// --------------------------------------------------------------------------
+
+	private buildFirmCard(): string {
+		const f = this.config.firm;
+		if (!f) return "Firm config not available.";
+
+		const packs = f.activePacks.length > 0 ? f.activePacks.join(", ") : "all (no restriction)";
+		const defPack = f.defaultPackId ?? "—";
+		const lang = f.language ?? "—";
+		const tone = f.toneProfile ?? "warm";
+
+		const waEnabled = f.channels.whatsappClient.enabled;
+		const tgEnabled = f.channels.telegramAdmin.enabled;
+
+		const waLine = waEnabled
+			? `✅ WhatsApp (client)\n  Auth: \`${f.channels.whatsappClient.authDir}\`\n  Allowed: ${f.channels.whatsappClient.allowedUserIds.length > 0 ? f.channels.whatsappClient.allowedUserIds.join(", ") : "all"}`
+			: "⬜ WhatsApp — disabled";
+
+		const tgLine = tgEnabled
+			? `✅ Telegram (admin)\n  Allowed: ${f.channels.telegramAdmin.allowedUserIds.length > 0 ? f.channels.telegramAdmin.allowedUserIds.join(", ") : "all"}`
+			: "⬜ Telegram — disabled";
+
+		return [
+			`🏢 *${f.name}*`,
+			`\`${f.id}\``,
+			"",
+			`*Packs:* ${packs}`,
+			`*Default pack:* ${defPack}`,
+			`*Language:* ${lang}   *Tone:* ${tone}`,
+			"",
+			"*Channels:*",
+			waLine,
+			tgLine,
+		].join("\n");
 	}
 
 	// --------------------------------------------------------------------------

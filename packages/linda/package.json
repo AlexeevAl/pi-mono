@@ -4,7 +4,8 @@
 	"description": "Linda — conversational intelligence layer for PSF Engine",
 	"type": "module",
 	"bin": {
-		"linda": "dist/main.js"
+		"linda": "dist/main.js",
+		"linda-create-firm": "dist/create-firm.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
