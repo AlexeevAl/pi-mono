@@ -233,6 +233,7 @@ Not a simple turn counter. A **scoring algorithm** based on multiple signals:
 **30min idle** → timeout hint  
 
 Counters reset when:
+
 - Step changes (PSF advanced)
 - Successful submit with new valid fields
 - Session reset
@@ -258,6 +259,7 @@ Two layers, applied **before data reaches PSF**:
 ### Step-Level (`validateForStep`)
 
 Extends field-level with:
+
 - **Required field tracking**: knows which fields this step requires
 - **Already collected**: doesn't demand fields PSF already has
 - **Missing required**: reports what's still needed
@@ -456,6 +458,7 @@ The `AgentPolicy` object is ready for RBAC enforcement in tool `execute()` funct
 ### Transition to separate agent classes
 
 When admin workflow stabilizes, extract:
+
 - `ClientAgent` ← current client path in `bot.ts`
 - `AdminAgent` ← admin path with dedicated `process()` logic
 
