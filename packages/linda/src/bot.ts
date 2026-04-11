@@ -38,11 +38,7 @@ export interface IncomingMessage {
 	channel: LindaChannel;
 	/** Agent role — determines prompt, tools, guardrails, and access scope */
 	role: AgentRole;
-	sendText: (
-		text: string,
-		suggestions?: string[],
-		inlineButtons?: Array<{ text: string; callback_data: string }>[],
-	) => Promise<void>;
+	sendText: (text: string, suggestions?: string[]) => Promise<void>;
 	sendTyping: () => Promise<void>;
 }
 

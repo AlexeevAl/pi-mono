@@ -196,7 +196,7 @@ export class TelegramAdapter implements LindaBridge {
 				text,
 				channel: "telegram",
 				role: "admin",
-				sendText: (reply, sugs, inline) => this.sendText(chatId, reply, sugs, inline),
+				sendText: (reply, sugs) => this.sendText(chatId, reply, sugs),
 				sendTyping: () => this.sendTyping(chatId),
 			};
 
@@ -245,7 +245,7 @@ export class TelegramAdapter implements LindaBridge {
 			text: incomingText,
 			channel: "telegram",
 			role: "admin",
-			sendText: (reply, sugs, inline) => this.sendText(chatId, reply, sugs, inline),
+			sendText: (reply, sugs) => this.sendText(chatId, reply, sugs),
 			sendTyping: () => this.sendTyping(chatId),
 		};
 
@@ -315,22 +315,10 @@ export class TelegramAdapter implements LindaBridge {
 		return data.result;
 	}
 
-	async sendText(
-		chatId: string,
-		text: string,
-		suggestions?: string[],
-		inlineButtons?: Array<{ text: string; callback_data: string }>[],
-	): Promise<void> {
+	async sendText(chatId: string, text: string, suggestions?: string[]): Promise<void> {
 		let reply_markup: Record<string, unknown> | undefined;
 
-		// Inline buttons (for admin commands) take precedence
-		if (inlineButtons && inlineButtons.length > 0) {
-			reply_markup = {
-				inline_keyboard: inlineButtons,
-			};
-			console.log(`[Telegram] Sending message with ${inlineButtons.length} button row(s)`);
-		} else if (suggestions && suggestions.length > 0) {
-			// Regular keyboard for client suggestions
+		if (suggestions && suggestions.length > 0) {
 			reply_markup = {
 				keyboard: suggestions.map((s) => [{ text: s }]),
 				resize_keyboard: true,
@@ -349,9 +337,6 @@ export class TelegramAdapter implements LindaBridge {
 				parse_mode: "Markdown",
 				reply_markup,
 			});
-			if (inlineButtons && inlineButtons.length > 0) {
-				console.log(`[Telegram] Message sent with inline buttons ✓`);
-			}
 		} catch (err) {
 			console.error(`[Telegram] sendText error:`, err);
 			// Retry without Markdown if formatting caused an error
