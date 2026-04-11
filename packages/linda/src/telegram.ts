@@ -29,9 +29,18 @@ interface TelegramMessage {
 	text?: string;
 }
 
+interface TelegramCallbackQuery {
+	id: string;
+	from?: TelegramUser;
+	chat_instance?: string;
+	message?: TelegramMessage;
+	data?: string;
+}
+
 interface TelegramUpdate {
 	update_id: number;
 	message?: TelegramMessage;
+	callback_query?: TelegramCallbackQuery;
 }
 
 interface TelegramResponse<T> {
@@ -155,6 +164,46 @@ export class TelegramAdapter implements LindaBridge {
 	// --------------------------------------------------------------------------
 
 	private async handleUpdate(update: TelegramUpdate): Promise<void> {
+		// Handle callback query (button press)
+		if (update.callback_query) {
+			const cbQuery = update.callback_query;
+			if (!cbQuery.from || !cbQuery.data) return;
+
+			const userId = String(cbQuery.from.id);
+			const chatId = String(cbQuery.message?.chat.id ?? cbQuery.from.id);
+			const text = cbQuery.data.trim();
+
+			// Acknowledge the callback query to remove the loading state
+			await this.callApi("answerCallbackQuery", { callback_query_id: cbQuery.id }).catch(() => {});
+
+			console.log(
+				`[Telegram] 🔘 Button pressed by ${userId} (@${cbQuery.from.username ?? "no_username"}): "${text}"`,
+			);
+
+			// Access control
+			if (
+				this.config.allowedUserIds &&
+				this.config.allowedUserIds.length > 0 &&
+				!this.config.allowedUserIds.includes(cbQuery.from.id)
+			) {
+				return;
+			}
+
+			const incoming: IncomingMessage = {
+				messageId: String(cbQuery.message?.message_id ?? Math.random()),
+				chatId,
+				userId,
+				text,
+				channel: "telegram",
+				role: "admin",
+				sendText: (reply, sugs, inline) => this.sendText(chatId, reply, sugs, inline),
+				sendTyping: () => this.sendTyping(chatId),
+			};
+
+			await this.bot.handleMessage(incoming);
+			return;
+		}
+
 		const msg = update.message;
 		if (!msg || !msg.text || !msg.from) return;
 
@@ -196,7 +245,7 @@ export class TelegramAdapter implements LindaBridge {
 			text: incomingText,
 			channel: "telegram",
 			role: "admin",
-			sendText: (reply, sugs) => this.sendText(chatId, reply, sugs),
+			sendText: (reply, sugs, inline) => this.sendText(chatId, reply, sugs, inline),
 			sendTyping: () => this.sendTyping(chatId),
 		};
 
@@ -249,7 +298,7 @@ export class TelegramAdapter implements LindaBridge {
 		const url = new URL(`${this.apiBase}/getUpdates`);
 		url.searchParams.set("offset", String(this.offset));
 		url.searchParams.set("timeout", String(timeoutSec));
-		url.searchParams.set("allowed_updates", JSON.stringify(["message"]));
+		url.searchParams.set("allowed_updates", JSON.stringify(["message", "callback_query"]));
 
 		const res = await fetch(url.toString(), {
 			signal,
@@ -266,27 +315,48 @@ export class TelegramAdapter implements LindaBridge {
 		return data.result;
 	}
 
-	async sendText(chatId: string, text: string, suggestions?: string[]): Promise<void> {
-		const reply_markup =
-			suggestions && suggestions.length > 0
-				? {
-						keyboard: suggestions.map((s) => [{ text: s }]),
-						resize_keyboard: true,
-						one_time_keyboard: true,
-					}
-				: {
-						remove_keyboard: true,
-					};
+	async sendText(
+		chatId: string,
+		text: string,
+		suggestions?: string[],
+		inlineButtons?: Array<{ text: string; callback_data: string }>[],
+	): Promise<void> {
+		let reply_markup: Record<string, unknown> | undefined;
 
-		await this.callApi("sendMessage", {
-			chat_id: chatId,
-			text,
-			parse_mode: "Markdown",
-			reply_markup,
-		}).catch(async () => {
+		// Inline buttons (for admin commands) take precedence
+		if (inlineButtons && inlineButtons.length > 0) {
+			reply_markup = {
+				inline_keyboard: inlineButtons,
+			};
+			console.log(`[Telegram] Sending message with ${inlineButtons.length} button row(s)`);
+		} else if (suggestions && suggestions.length > 0) {
+			// Regular keyboard for client suggestions
+			reply_markup = {
+				keyboard: suggestions.map((s) => [{ text: s }]),
+				resize_keyboard: true,
+				one_time_keyboard: true,
+			};
+		} else {
+			reply_markup = {
+				remove_keyboard: true,
+			};
+		}
+
+		try {
+			const _response = await this.callApi("sendMessage", {
+				chat_id: chatId,
+				text,
+				parse_mode: "Markdown",
+				reply_markup,
+			});
+			if (inlineButtons && inlineButtons.length > 0) {
+				console.log(`[Telegram] Message sent with inline buttons ✓`);
+			}
+		} catch (err) {
+			console.error(`[Telegram] sendText error:`, err);
 			// Retry without Markdown if formatting caused an error
 			await this.callApi("sendMessage", { chat_id: chatId, text, reply_markup });
-		});
+		}
 	}
 
 	async sendTyping(chatId: string): Promise<void> {

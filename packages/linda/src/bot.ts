@@ -38,7 +38,11 @@ export interface IncomingMessage {
 	channel: LindaChannel;
 	/** Agent role — determines prompt, tools, guardrails, and access scope */
 	role: AgentRole;
-	sendText: (text: string, suggestions?: string[]) => Promise<void>;
+	sendText: (
+		text: string,
+		suggestions?: string[],
+		inlineButtons?: Array<{ text: string; callback_data: string }>[],
+	) => Promise<void>;
 	sendTyping: () => Promise<void>;
 }
 
@@ -245,6 +249,7 @@ export class LindaBot {
 
 		if (reply.trim()) {
 			const chunks = splitText(reply.trim(), 3900);
+			console.log(`[Bot] Sending response in ${chunks.length} chunks, role=${state.role}`);
 			for (let i = 0; i < chunks.length; i++) {
 				const isLast = i === chunks.length - 1;
 				await msg.sendText(chunks[i], isLast ? lastSuggestions : undefined);
