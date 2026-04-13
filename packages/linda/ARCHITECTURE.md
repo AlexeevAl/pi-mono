@@ -3,26 +3,52 @@
 > Conversational intelligence layer for PSF Engine.
 > Multi-channel intake bot with role-based agent separation and deployment-level tenant isolation.
 
-## Overview
+## Overview (Linda v2 — Skill-Centric)
 
-Linda is a **runtime-controlled** conversational agent. The LLM is a semantic layer — it understands users and extracts data. All business logic, flow control, and state management live in code.
+Linda v2 — это **stateless executor**, построенный поверх `@mariozechner/pi-agent-core`. 
+В отличие от v1, агент больше не занимается локальной реконструкцией состояния PSF-сессии. Вместо этого он работает по модели **Backend-First Skill Context**.
 
 ```
-WhatsApp (client) ──┐
-                     ├──► LindaBot ──► PSF Engine (source of truth)
-Telegram (admin)  ──┘        │
-                          Runtime
-                       ┌────┴────┐
-                    Guardrails  Validation
-                    Logging     Redaction
-                       └────┬────┘
-                         FirmConfig
-                    (tenant context)
+WhatsApp/Telegram ──► Linda Edge (Edge Shell) ──► PSF Engine v2 (Authority)
+                          │                          │
+                          │  GET /api/agent/context  │
+                          │ ◄────────────────────────┘
+                          │
+                   ┌──────┴──────┐
+                   │ LindaAgent  │ (Stateless Executor)
+                   │  (pi-core)  │
+                   └──────┬──────┘
+                          │
+                  Skills Library (MD)
+                 (Personas & Tools)
 ```
 
-### Key Principle
+### Key Principle: Backend-First Authority
 
-**PSF is the single source of truth.** Linda never commits state. All writes go through PSF; Linda reads state, injects context into LLM, validates locally, then defers to PSF.
+1. **Единый источник истины**: Бэкенд (PSF Engine v2) определяет `activeSkill`, `conversationGoal` и `allowedTools` через объект `ClubAgentContext`.
+2. **Stateless Execution**: Агент на границе получает контекст, загружает соответствующий системный промпт (персону) из `SKILL.md` и запускает цикл выполнения.
+3. **Skill-Centric Persona**: Каждый навык (например, `profile_enrichment` или `service_recommendation`) — это изолированная инструкция и набор инструментов.
+4. **Tool Delegation**: Агент не "решает", когда вызывать PSF. Он вызывает инструменты, предоставленные контекстом, которые прозрачно взаимодействуют с бэкендом.
+
+
+---
+
+## Linda v2 Context Contract
+
+Взаимодействие между Edge и Backend происходит через контракт `ClubAgentContext`. Этот объект содержит всё необходимое для инициализации агента на один "ход".
+
+```typescript
+export interface ClubAgentContext {
+  tenantId: string;           // ID клиники/фирмы
+  clientId: string;           // ID клиента (номер телефона или UUID)
+  channel: ClubChannel;       // whatsapp | telegram | web
+  relationshipState: ClubRelationshipState; // Текущий статус отношений (new_client, post_procedure...)
+  conversationGoal: ClubConversationGoal;   // Краткая цель диалога на этот ход
+  activeSkill: ClubSkillId;   // Какой скилл (персона) должен быть активен
+  allowedSkills: ClubExecutableSkillId[];   // Список доступных навыков для переключения
+  nextBestAction?: string;    // Подсказка для агента по следующему действию
+}
+```
 
 ---
 
@@ -94,6 +120,23 @@ linda-create-firm --out=.env.acme_law
 ```
 
 Generates a 3-block `.env` file: Firm Identity / WhatsApp Client / Telegram Admin.
+
+---
+
+## Skills & Personas (The Skills Library)
+
+Агент Linda использует систему **Skills/Personas**, где каждый навык описывается в отдельном `SKILL.md` файле.
+
+### Структура скилла
+1. **System Prompt**: Основная "личность" агента для этого навыка (на базе Markdown).
+2. **Context Enrichment**: Динамическое добавление `conversationGoal` и `relationshipState` в промпт перед запуском.
+3. **Tool Surface**: Список разрешенных инструментов, который пересекается с `allowedTools` из бэкенда.
+
+### Использование pi-agent-core
+Linda инициализирует новый экземпляр `Agent` для каждого запроса (или переиспользует, сбрасывая состояние):
+- **convertToLlm**: Фильтрация сообщений для оптимизации контекста.
+- **Thinking**: Отключено (режим `off`) для стабильности в диалогах с клиентами.
+- **Event Subscription**: Логирование превращается в структурированные события (tool_execution, text_delta).
 
 ---
 

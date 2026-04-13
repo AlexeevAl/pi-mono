@@ -1,0 +1,37 @@
+{
+  "name": "@psf/linda-agent",
+  "version": "0.1.0",
+  "description": "Linda Agent — canonical PSF executor core",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsgo -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "prestart": "pnpm build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "workspace:*",
+    "@mariozechner/pi-ai": "workspace:*",
+    "@sinclair/typebox": "^0.34.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "chalk": "^5.5.0",
+    "dotenv": "^16.4.7",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

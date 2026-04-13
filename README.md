@@ -61,6 +61,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.m
 npm install          # Install all dependencies
 npm run build        # Build all packages
 npm run check        # Lint, format, and type check
+npm run dev:linda    # Start Clinical System (Engine + Linda Agent)
 ./test.sh            # Run tests (skips LLM-dependent tests without API keys)
 ./pi-test.sh         # Run pi from sources (can be run from any directory)
 ```
