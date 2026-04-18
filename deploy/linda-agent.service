@@ -1,0 +1,26 @@
+[Unit]
+Description=Linda Agent (WhatsApp + Telegram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=linda
+Group=linda
+WorkingDirectory=/home/linda/apps/pi-mono/packages/linda-agent
+EnvironmentFile=/etc/linda/linda.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/linda/apps/pi-mono/packages/linda-agent/.linda
+
+[Install]
+WantedBy=multi-user.target
