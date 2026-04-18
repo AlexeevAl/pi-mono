@@ -6,7 +6,6 @@ import makeWASocket, {
 	useMultiFileAuthState,
 	type WASocket,
 } from "@whiskeysockets/baileys";
-// @ts-expect-error — no types for qrcode-terminal
 import QRCode from "qrcode-terminal";
 import type { LindaClientAgent } from "../agents/LindaClientAgent.js";
 

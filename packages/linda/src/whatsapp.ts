@@ -11,7 +11,6 @@ import makeWASocket, {
 	useMultiFileAuthState,
 	type WASocket,
 } from "@whiskeysockets/baileys";
-// @ts-expect-error
 import QRCode from "qrcode-terminal";
 import type { IncomingMessage, LindaBot } from "./bot.js";
 import type { LindaBridge } from "./types.js";
