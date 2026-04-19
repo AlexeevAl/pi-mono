@@ -1,6 +1,21 @@
 # @psf/linda-agent
 
-Операционный пакет системы Linda — два специализированных AI-агента, построенных поверх [`pi-agent-core`](../../packages/agent), с каналами для WhatsApp и Telegram.
+## Status
+
+Это канонический Linda agent shell.
+
+- Здесь меняется поведение агента: `skills`, channel adapters, client/admin orchestration, prompt assembly и edge-level delivery.
+- Authority path, policy, runtime, planner, bridge и contracts живут в `D:\Work\Projects\2026\psf-engine-v2`.
+- `D:\Work\Projects\2026\psf-engine-v2\packages\linda-agent` заморожен и не является источником правды.
+- `D:\Work\Projects\2026\pi-mono\packages\linda` пока остаётся live legacy shell для текущего продового URL. Новую бизнес-логику туда не добавляем.
+
+Правило простое:
+
+- где менять поведение агента — `pi-mono/packages/linda-agent`;
+- где менять authority/policy/runtime — `psf-engine-v2`;
+- где не трогать как место для новых agent features — `psf-engine-v2/packages/linda-agent`.
+
+Операционный пакет системы Linda — два специализированных AI-агента, построенных поверх [`pi-agent-core`](../../packages/agent), с каналами для WhatsApp, Telegram и Web.
 
 ---
 
@@ -9,6 +24,12 @@
 ### Backend-First, Stateless
 
 Агенты не хранят состояние диалога локально. Перед каждым ходом они запрашивают `ClubAgentContext` у `psf-engine-v2`. Движок — единственный источник правды.
+
+Критичное правило:
+
+- движок решает, **что делать дальше** (`activeSkill`, `allowedSkills`, `nextBestAction`, `humanHandoff`);
+- `linda-agent` решает, **как именно выполнить уже выбранный шаг** через `SKILL.md`;
+- skills должны быть маленькими и однозадачными, а не гигантским "универсальным менеджером".
 
 ```
 WhatsApp → WhatsAppChannel → LindaClientAgent → GET /api/agent/context
@@ -55,6 +76,7 @@ packages/linda-agent/
     channels/
       WhatsAppChannel.ts  — Baileys-адаптер → LindaClientAgent
       TelegramChannel.ts  — long-polling-адаптер → LindaAdminAgent
+      WebChannel.ts       — HTTP/UI shell → LindaClientAgent | LindaAdminAgent
 
     tools/
       client-tools.ts     — клинические инструменты (submit_profile_answers и др.)
@@ -67,10 +89,13 @@ packages/linda-agent/
     index.ts              — публичный API пакета
 
   skills/
-    manager/              — базовая личность клинического менеджера
-    profile_enrichment/   — навык сбора данных пациента
-    booking_consultation/ — навык записи на консультацию
-    admin_assistant/      — личность операционного ассистента (Telegram)
+    problem_discovery/      — диагностика запроса и выбор следующего шага
+    manager/                — базовая личность клинического менеджера
+    profile_enrichment/     — навык сбора данных пациента
+    service_recommendation/ — глубоко персональные рекомендации услуг/товаров
+    annual_plan_tracking/   — годовой план и сопровождение выполнения
+    booking_consultation/   — навык записи на консультацию
+    admin_assistant/        — личность операционного ассистента (Telegram)
 ```
 
 ---
@@ -95,6 +120,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # Admin access (Telegram user IDs через запятую)
 ALLOWED_ADMIN_IDS=123456789,987654321
+
+# Channels
+WHATSAPP_ENABLED=false
+TELEGRAM_ENABLED=false
+WEB_ENABLED=true
+WEB_ROLE=client
+WEB_PORT=3034
+WEB_ALLOWED_ORIGINS=*
+# WEB_DEFAULT_ACTOR_ID=user_web_demo
 
 # Локализация
 LOCALE=ru
@@ -132,6 +166,7 @@ import {
   LindaAdminAgent,
   WhatsAppChannel,
   TelegramChannel,
+  WebChannel,
 } from "@psf/linda-agent";
 
 const config = buildRuntimeConfig();
@@ -151,8 +186,18 @@ const telegram = new TelegramChannel(
   adminAgent
 );
 
+const web = new WebChannel(
+  {
+    port: 3034,
+    role: "client",
+    allowedOrigins: "*",
+    firmName: "Linda Clinic",
+  },
+  { clientAgent, adminAgent }
+);
+
 // Старт
-await Promise.all([whatsapp.start(), telegram.start()]);
+await Promise.all([whatsapp.start(), telegram.start(), web.start()]);
 ```
 
 ### Прямой вызов агента (без каналов)
@@ -194,10 +239,10 @@ const targeted = await adminAgent.decide({
 |---|---|
 | Роль | `client_agent` (фиксированно) |
 | Канал по умолчанию | `whatsapp` |
-| Скилл по умолчанию | `manager` |
+| Скилл по умолчанию | зависит от `activeSkill`, который вернул движок |
 | Инструменты | `submit_profile_answers`, `get_missing_fields`, `log_interest_signal`, `escalate_to_human` |
 
-**Поведение**: перед каждым ходом запрашивает `ClubAgentContext` от движка. На основе `activeSkill` выбирает `SKILL.md` и строит system prompt с целью разговора и статусом отношений.
+**Поведение**: перед каждым ходом запрашивает `ClubAgentContext` от движка. На основе `activeSkill` выбирает `SKILL.md` и строит system prompt с целью разговора, статусом отношений и skill-specific контекстом.
 
 ### LindaAdminAgent
 
@@ -265,9 +310,39 @@ new TelegramChannel(
 | `/override` | Изменить поле анкеты |
 | `/start` | Начать работу |
 
+### WebChannel
+
+HTTP shell без push-семантики. Даёт:
+
+- `GET /` — встроенный chat UI
+- `POST /chat` — request/response API
+- `GET /health` — healthcheck
+- `POST /reset` — только локальный UI reset, без server-side session wipe
+
+```ts
+new WebChannel(
+  {
+    port: 3034,
+    role: "client", // "client" | "admin"
+    allowedOrigins: "*",
+    firmName: "Linda Clinic",
+    defaultActorId: "user_web_demo",
+  },
+  { clientAgent, adminAgent },
+);
+```
+
+`role=client` отправляет запросы в `LindaClientAgent`, `role=admin` — в `LindaAdminAgent`.
+
+Для `admin`-web режима:
+
+- actor id должен совпадать с allowlist, если включён `ALLOWED_ADMIN_IDS`;
+- `targetClientId` задаётся прямо в web UI;
+- `/reset` не сбрасывает backend session, а только очищает локальный чат и при необходимости ротирует `actorId`.
+
 ---
 
-## Скиллы (Personas)
+## Скиллы (Execution Skills)
 
 Каждый скилл — папка в `skills/<skill_id>/SKILL.md`. Файл загружается как system prompt для LLM.
 
@@ -276,9 +351,18 @@ new TelegramChannel(
 | Скилл | Роль | Описание |
 |---|---|---|
 | `manager` | client_agent | Базовая личность клинического менеджера |
+| `problem_discovery` | client_agent | Диагностика запроса и выбор следующего сценария |
 | `profile_enrichment` | client_agent | Сбор данных в анкету (включая ссылки на UI) |
+| `service_recommendation` | client_agent | Глубоко персональные рекомендации услуг и товаров |
+| `annual_plan_tracking` | client_agent | Долгосрочный план и сопровождение по этапам |
 | `booking_consultation` | client_agent | Запись на консультацию |
 | `admin_assistant` | admin_agent | Операционный ассистент для Telegram |
+
+Важно:
+
+- это не "разные агенты", а маленькие execution-skills одного и того же `client_agent`;
+- текущий движок `clinic-profile-os` маршрутизирует только поддерживаемый backend-контрактом поднабор skills;
+- skills, добавленные в канон заранее, не должны считаться активными, пока их явно не начнёт выдавать движок.
 
 ### Добавление скилла
 
@@ -287,6 +371,7 @@ new TelegramChannel(
 3. Добавьте `skill_id` в `enabledSkills` в конфиге
 
 Движок возвращает `activeSkill` в `ClubAgentContext` — агент автоматически загрузит нужный файл.
+Если новый skill должен реально участвовать в рантайме, одного `SKILL.md` мало: движок тоже должен уметь выдать этот `activeSkill`.
 
 ---
 
@@ -329,8 +414,21 @@ npm run build
 node dist/main.js
 ```
 
+### Web-only локальный запуск
+
+```env
+WHATSAPP_ENABLED=false
+TELEGRAM_ENABLED=false
+WEB_ENABLED=true
+WEB_ROLE=client
+WEB_PORT=3034
+```
+
+После старта открой `http://localhost:3034`.
+
 Переменные для отладки:
 ```env
 PSF_ENGINE_URL=http://localhost:3050   # движок запущен локально
 ALLOWED_ADMIN_IDS=                     # пустой = любой admin (только для dev!)
+WEB_DEFAULT_ACTOR_ID=user_web_demo     # фиксированный actor id для demo
 ```

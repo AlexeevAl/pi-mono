@@ -24,6 +24,7 @@ if (fs.existsSync(".env")) {
 import { LindaAdminAgent } from "./agents/LindaAdminAgent.js";
 import { LindaClientAgent } from "./agents/LindaClientAgent.js";
 import { TelegramChannel } from "./channels/TelegramChannel.js";
+import { WebChannel } from "./channels/WebChannel.js";
 import { WhatsAppChannel } from "./channels/WhatsAppChannel.js";
 import { buildRuntimeConfig } from "./config.js";
 
@@ -55,6 +56,11 @@ function parseNumericIds(raw: string | undefined): number[] {
 		.filter((n) => !Number.isNaN(n) && n > 0);
 }
 
+function parseBoolean(raw: string | undefined, defaultValue: boolean): boolean {
+	if (raw === undefined) return defaultValue;
+	return raw === "true" || raw === "1";
+}
+
 // ============================================================================
 // Runtime
 // ============================================================================
@@ -82,6 +88,7 @@ async function main(): Promise<void> {
 
 	const whatsappEnabled = process.env.WHATSAPP_ENABLED !== "false";
 	const telegramEnabled = process.env.TELEGRAM_ENABLED !== "false";
+	const webEnabled = parseBoolean(optionalEnv("WEB_ENABLED"), false);
 
 	const channels: Array<{ start(): Promise<void>; stop(): void }> = [];
 
@@ -121,6 +128,39 @@ async function main(): Promise<void> {
 		console.log(`[Telegram] disabled (TELEGRAM_ENABLED=false)`);
 	}
 
+	if (webEnabled) {
+		const webRole = optionalEnv("WEB_ROLE") === "admin" ? "admin" : "client";
+		const webPort = Number(optionalEnv("WEB_PORT")) || 3034;
+		const allowedOrigins = optionalEnv("WEB_ALLOWED_ORIGINS") ?? "*";
+		const defaultActorId = optionalEnv("WEB_DEFAULT_ACTOR_ID");
+		const firmName = optionalEnv("FIRM_NAME") ?? config.shared.firmId;
+
+		console.log(`[Web] role       = ${webRole}`);
+		console.log(`[Web] port       = ${webPort}`);
+		console.log(`[Web] origins    = ${allowedOrigins}`);
+		if (defaultActorId) {
+			console.log(`[Web] actorId    = ${defaultActorId}`);
+		}
+
+		channels.push(
+			new WebChannel(
+				{
+					port: webPort,
+					role: webRole,
+					allowedOrigins,
+					firmName,
+					defaultActorId,
+				},
+				{
+					clientAgent,
+					adminAgent,
+				},
+			),
+		);
+	} else {
+		console.log(`[Web] disabled (WEB_ENABLED=false)`);
+	}
+
 	console.log("\n");
 
 	// ---- Graceful shutdown ----------------------------------------------------
@@ -144,7 +184,7 @@ async function main(): Promise<void> {
 
 	if (channels.length === 0) {
 		console.warn("[Linda] No channels enabled — nothing to do.");
-		console.warn("        Set WHATSAPP_ENABLED=true and/or TELEGRAM_ENABLED=true");
+		console.warn("        Set WHATSAPP_ENABLED=true, TELEGRAM_ENABLED=true, or WEB_ENABLED=true");
 		process.exit(1);
 	}
 

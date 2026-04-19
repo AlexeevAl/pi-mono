@@ -23,8 +23,10 @@ export type ClubRelationshipState =
 	| "human_followup_needed";
 
 export type ClubConversationGoal =
+	| "clarify_need"
 	| "complete_profile"
 	| "recommend_service"
+	| "track_annual_plan"
 	| "book_consultation"
 	| "post_treatment_checkin"
 	| "reactivate_client"
@@ -33,12 +35,14 @@ export type ClubConversationGoal =
 	| "handoff_to_human";
 
 export type ClientSkillId =
+	| "problem_discovery"
 	| "profile_enrichment"
 	| "service_recommendation"
 	| "booking_consultation"
 	| "post_procedure_checkin"
 	| "reactivation"
 	| "membership_offer"
+	| "annual_plan_tracking"
 	| "objection_handling"
 	| "human_handoff"
 	| "manager"

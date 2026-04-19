@@ -3,6 +3,7 @@
 export { LindaAdminAgent } from "./agents/LindaAdminAgent.js";
 export { LindaClientAgent } from "./agents/LindaClientAgent.js";
 export { TelegramChannel } from "./channels/TelegramChannel.js";
+export { WebChannel } from "./channels/WebChannel.js";
 export { WhatsAppChannel } from "./channels/WhatsAppChannel.js";
 export { buildRuntimeConfig } from "./config.js";
 

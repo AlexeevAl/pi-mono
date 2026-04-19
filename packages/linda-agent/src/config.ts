@@ -34,7 +34,10 @@ export function buildRuntimeConfig(skillsDir?: string): LindaRuntimeConfig {
 		},
 		clientAgent: {
 			enabledSkills: [
+				"problem_discovery",
 				"profile_enrichment",
+				"service_recommendation",
+				"annual_plan_tracking",
 				"manager",
 				"booking_consultation",
 				"objection_handling",
