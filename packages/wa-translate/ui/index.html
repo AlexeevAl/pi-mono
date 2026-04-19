@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Translator Console</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0c0d12;
+            color: #e2e8f0;
+        }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .message-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: slideIn 0.4s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .hebrew {
+            direction: rtl;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="h-16 glass border-b flex items-center justify-between px-6 z-10">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/40">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight">WA-Translate Console</h1>
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                    <span class="text-xs text-slate-400 font-medium">System Ready</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <select id="mode-selector" class="bg-slate-800 border-slate-700 text-sm rounded-md px-3 py-1.5 focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="both">Mode: Both (Chat + UI)</option>
+                <option value="ui">Mode: UI Only (Silent)</option>
+                <option value="whatsapp">Mode: Chat Only</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-72 glass border-r hidden md:flex flex-col">
+            <div class="p-4 border-b border-slate-700/50">
+                <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Chats</h2>
+            </div>
+            <div id="chat-list" class="flex-1 overflow-y-auto p-2 space-y-1">
+                <!-- Chats will appear here -->
+            </div>
+        </aside>
+
+        <!-- Message Stream -->
+        <section class="flex-1 flex flex-col bg-[#0f111a]">
+            <div id="message-container" class="flex-1 overflow-y-auto p-6 space-y-4">
+                <!-- Messages will appear here -->
+                <div class="h-full flex flex-col items-center justify-center text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <p>Waiting for messages...</p>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div id="input-area" class="p-6 pt-0 hidden">
+                <div class="glass rounded-2xl p-2 flex items-center gap-2 border border-slate-700/50">
+                    <input type="text" id="message-input" 
+                           class="flex-1 bg-transparent border-none outline-none px-4 py-2 text-white placeholder-slate-500 text-sm"
+                           placeholder="Type in Russian to translate and send...">
+                    <button id="send-btn" class="p-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

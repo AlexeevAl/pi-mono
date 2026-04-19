@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Boom } from "@hapi/boom";
 import qrcode from "qrcode-terminal";
+import { TranslationServer } from "./server.js";
 import { TranslationStorage } from "./storage.js";
 import { type MessageContext, TranslatorService } from "./translator.js";
 
@@ -22,6 +23,20 @@ const translator = new TranslatorService(
 	process.env.MODEL || "gpt-5.4-mini",
 	async () => process.env.OPENAI_API_KEY,
 );
+
+const server = new TranslationServer();
+server.onCommand((cmd, args) => {
+	if (cmd === "mode") {
+		console.log(`[WA-Translate] UI Command: Global reply mode set to ${args.value}`);
+		// For now, let's treat this as a global override or just log it
+		// In a real multi-chat scenario, we'd need to know which chat it's for.
+	}
+});
+
+// Pre-fill the server with known chats from storage (with names)
+server.setChatList(storage.getChatList());
+
+server.start();
 
 // Detect dominant script of a text. Returns the target language code (ru/he/en)
 // if the text is clearly already in that language, otherwise undefined.
@@ -47,20 +62,6 @@ function langMatches(detected: "ru" | "he" | "en" | undefined, targetLang: strin
 	return false;
 }
 
-// Map language code to flag emoji
-const FLAG_MAP: Record<string, string> = {
-	ru: "🇷🇺",
-	he: "🇮🇱",
-	en: "🇺🇸",
-	es: "🇪🇸",
-	fr: "🇫🇷",
-	de: "🇩🇪",
-};
-
-function getFlag(lang: string): string {
-	return FLAG_MAP[lang.toLowerCase()] || `[${lang.toUpperCase()}]`;
-}
-
 // In-memory context storage (last 5 messages per chat)
 const chatContexts = new Map<string, MessageContext[]>();
 
@@ -74,6 +75,7 @@ function addContext(chatId: string, role: "user" | "assistant", content: string)
 async function connectToWhatsApp() {
 	const authDir = path.join(__dirname, "..", "auth_info");
 	const { state, saveCreds } = await useMultiFileAuthState(authDir);
+
 	const { version, isLatest } = await fetchLatestBaileysVersion();
 	console.log(`[WA-Translate] Using Baileys v${version.join(".")}, latest: ${isLatest}`);
 
@@ -94,9 +96,115 @@ async function connectToWhatsApp() {
 		auth: state,
 		printQRInTerminal: false,
 		logger: mockLogger,
+		syncFullHistory: false,
+		shouldSyncHistoryMessage: () => true,
 	});
 
 	sock.ev.on("creds.update", saveCreds);
+
+	function handleContactUpdate(id: string, name?: string) {
+		if (name && name !== id) {
+			storage.setChatName(id, name);
+		}
+		// Also ensure it's in the recent list if it's a valid chat
+		if (id && (id.endsWith("@s.whatsapp.net") || id.endsWith("@g.us") || id.endsWith("@lid"))) {
+			const isNew = !storage.getAllChatIds().includes(id);
+			storage.touchChat(id);
+			if (isNew) {
+				server.setChatList(storage.getChatList());
+			}
+		}
+	}
+
+	sock.ev.on("messaging-history.set", (data: any) => {
+		if (data.contacts) {
+			console.log(`[WA-Translate] Syncing names from ${data.contacts.length} contacts...`);
+			for (const contact of data.contacts) {
+				handleContactUpdate(contact.id, contact.notify || contact.name);
+			}
+		}
+		if (data.chats) {
+			console.log(`[WA-Translate] Syncing ${data.chats.length} recent chats from history...`);
+			for (const chat of data.chats) {
+				handleContactUpdate(chat.id, chat.name);
+			}
+		}
+	});
+
+	sock.ev.on("contacts.upsert", (contacts: any) => {
+		for (const contact of contacts) {
+			handleContactUpdate(contact.id, contact.notify || contact.name);
+		}
+	});
+
+	sock.ev.on("contacts.update", (updates: any) => {
+		for (const update of updates) {
+			handleContactUpdate(update.id, update.notify || update.name);
+		}
+	});
+
+	sock.ev.on("chats.set", (data: any) => {
+		if (data.chats) {
+			console.log(`[WA-Translate] Syncing ${data.chats.length} chats from chats.set...`);
+			for (const chat of data.chats) {
+				handleContactUpdate(chat.id, chat.name);
+			}
+		}
+	});
+
+	sock.ev.on("chats.upsert", (chats: any) => {
+		for (const chat of chats) {
+			handleContactUpdate(chat.id, chat.name);
+		}
+	});
+
+	sock.ev.on("chats.update", (updates: any) => {
+		for (const update of updates) {
+			handleContactUpdate(update.id, update.name);
+		}
+	});
+
+	sock.ev.on("presence.update", (data: any) => {
+		// Sometimes presence updates contain pushName
+		if (data.id && data.presences) {
+			const jid = data.id;
+			const presence = Object.values(data.presences)[0] as any;
+			if (presence?.name) {
+				handleContactUpdate(jid, presence.name);
+			}
+		}
+	});
+
+	server.onMessageSend(async (chatId, text) => {
+		console.log(`[WA-Translate] UI Message for ${chatId}: "${text}"`);
+		const chatConfig = storage.getChatConfig(chatId);
+		const targetLang = chatConfig?.targetLang || "he";
+		const langName = targetLang.toLowerCase() === "he" ? "Hebrew" : targetLang;
+		const context = chatContexts.get(chatId) || [];
+
+		const result = await translator.translate(text, langName, context, chatConfig?.contactGender || "male");
+		if (result.ok) {
+			const replyText = result.text;
+			await sock.sendMessage(chatId, { text: replyText });
+
+			// Broadcast back to UI so it shows up in the feed
+			server.broadcastTranslation({
+				id: `ui-${Date.now()}`,
+				chatId,
+				chatName: storage.getResolvedName(chatId) || chatId,
+				text,
+				translatedText: result.text,
+				targetLang: targetLang,
+				timestamp: Date.now(),
+				fromMe: true,
+			});
+
+			addContext(chatId, "user", text);
+			addContext(chatId, "assistant", result.text);
+		} else {
+			console.error("[WA-Translate] Failed to translate UI message:", result);
+		}
+	});
 
 	sock.ev.on("connection.update", (update: any) => {
 		const { connection, lastDisconnect, qr } = update;
@@ -121,6 +229,15 @@ async function connectToWhatsApp() {
 			}
 		} else if (connection === "open") {
 			console.log("[WA-Translate] ✅ Connected to WhatsApp.");
+
+			// Proactive name resolution: subscribe to presence for all known chats
+			const allChatIds = storage.getAllChatIds();
+			if (allChatIds.length > 0) {
+				console.log(`[WA-Translate] Probing ${allChatIds.length} contacts for names...`);
+				for (const id of allChatIds) {
+					sock.presenceSubscribe(id).catch(() => {});
+				}
+			}
 		}
 	});
 
@@ -133,6 +250,10 @@ async function connectToWhatsApp() {
 			if (!msg.key.remoteJid) continue;
 
 			const chatId = msg.key.remoteJid;
+
+			// Update activity order and ensure it's in the list
+			handleContactUpdate(chatId);
+
 			const isFromMe = msg.key.fromMe || false;
 			const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
 			const trimmedText = text.trim();
@@ -163,7 +284,7 @@ async function connectToWhatsApp() {
 
 					storage.enableChat(chatId, lang);
 					await sock.sendMessage(chatId, {
-						text: `🔛 Translation enabled. Outgoing target: ${getFlag(lang)} ${lang.toUpperCase()}`,
+						text: `🔛 Translation enabled. Outgoing target: ${lang.toUpperCase()}`,
 					});
 				} else if (trimmedText.startsWith("/gender")) {
 					const parts = trimmedText.split(" ");
@@ -181,6 +302,17 @@ async function connectToWhatsApp() {
 							});
 						}
 					}
+				} else if (trimmedText.startsWith("/mode")) {
+					const parts = trimmedText.split(" ");
+					if (parts.length > 1) {
+						const mode = parts[1].toLowerCase() as "whatsapp" | "ui" | "both";
+						if (mode === "whatsapp" || mode === "ui" || mode === "both") {
+							storage.setReplyMode(chatId, mode);
+							await sock.sendMessage(chatId, {
+								text: `🔄 Reply mode set to: ${mode.toUpperCase()}`,
+							});
+						}
+					}
 				}
 				continue;
 			}
@@ -191,6 +323,10 @@ async function connectToWhatsApp() {
 			let chatConfig = storage.getChatConfig(chatId);
 			const context = chatContexts.get(chatId) || [];
 			const detected = detectDominantLang(trimmedText);
+			const pushName = msg.pushName;
+			if (pushName && !isFromMe) {
+				handleContactUpdate(chatId, pushName);
+			}
 
 			if (!isFromMe) {
 				// Incoming → translate to Russian. Skip if already Russian.
@@ -210,13 +346,33 @@ async function connectToWhatsApp() {
 						chatConfig = storage.getChatConfig(chatId);
 					}
 
-					const replyText = `${getFlag("ru")} ${result.text}`;
-					const sentMsg = await sock.sendMessage(chatId, { text: replyText }, { quoted: msg });
-					if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+					const replyMode = chatConfig?.replyMode || "both";
+					const replyText = result.text;
+
+					// Broadcast to UI
+					server.broadcastTranslation({
+						id: msg.key.id || "",
+						chatId,
+						chatName: storage.getResolvedName(chatId) || msg.pushName || chatId,
+						text: trimmedText,
+						translatedText: result.text,
+						targetLang: "ru",
+						timestamp: Date.now(),
+						fromMe: false,
+					});
+
+					if (replyMode === "whatsapp" || replyMode === "both") {
+						const sentMsg = await sock.sendMessage(chatId, { text: replyText }, { quoted: msg });
+						if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+					}
+
 					addContext(chatId, "assistant", result.text);
 				} else if (result.reason === "error") {
-					const sentMsg = await sock.sendMessage(chatId, { text: "⚠️ Translation failed." }, { quoted: msg });
-					if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+					const replyMode = chatConfig?.replyMode || "both";
+					if (replyMode === "whatsapp" || replyMode === "both") {
+						const sentMsg = await sock.sendMessage(chatId, { text: "⚠️ Translation failed." }, { quoted: msg });
+						if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+					}
 				}
 			} else {
 				// Outgoing message
@@ -238,13 +394,33 @@ async function connectToWhatsApp() {
 					if (result.ok) {
 						addContext(chatId, "user", trimmedText);
 						console.log(`[WA-Translate] Sending translation: ${result.text}`);
-						const replyText = `${getFlag(targetLang)} ${result.text}`;
-						const sentMsg = await sock.sendMessage(chatId, { text: replyText }, { quoted: msg });
-						if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+						const replyText = result.text;
+						const replyMode = chatConfig.replyMode || "both";
+
+						// Broadcast to UI
+						server.broadcastTranslation({
+							id: msg.key.id || "",
+							chatId,
+							chatName: storage.getResolvedName(chatId) || chatId,
+							text: trimmedText,
+							translatedText: result.text,
+							targetLang: targetLang,
+							timestamp: Date.now(),
+							fromMe: true,
+						});
+
+						if (replyMode === "whatsapp" || replyMode === "both") {
+							const sentMsg = await sock.sendMessage(chatId, { text: replyText }, { quoted: msg });
+							if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+						}
+
 						addContext(chatId, "assistant", result.text);
 					} else if (result.reason === "error") {
-						const sentMsg = await sock.sendMessage(chatId, { text: "⚠️ Translation failed." }, { quoted: msg });
-						if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+						const replyMode = chatConfig.replyMode || "both";
+						if (replyMode === "whatsapp" || replyMode === "both") {
+							const sentMsg = await sock.sendMessage(chatId, { text: "⚠️ Translation failed." }, { quoted: msg });
+							if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+						}
 					}
 				}
 			}
