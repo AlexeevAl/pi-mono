@@ -1,16 +1,17 @@
-node_modules/
-dist/
-*.log
-.DS_Store
-*.tsbuildinfo
-# packages/*/node_modules/
-packages/*/dist/
-packages/*/dist-chrome/
-packages/*/dist-firefox/
-*.cpuprofile
+**/node_modules/
+**/dist/
+**/*.log
+**/.DS_Store
+**/*.tsbuildinfo
+**/*.cpuprofile
+**/dist-chrome/
+**/dist-firefox/
 
 # Environment
 .env
+.env.*
+**/.env
+**/.env.*
 
 # Editor files
 .vscode/
@@ -38,3 +39,16 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+.claude/
+
+# Session & Auth data (WhatsApp/Lina)
+**/.linda/
+**/auth_info/
+**/.translator-state.json
+**/.run/
+**/auth-whatsapp/
+**/creds.json
+**/pre-key-*.json
+**/session-*.json
+**/sender-key-*.json
+**/app-state-sync-*.json
