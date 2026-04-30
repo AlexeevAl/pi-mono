@@ -3,7 +3,7 @@ import type { Api, Model, SimpleStreamOptions, StreamOptions, ThinkingBudgets, T
 export function buildBaseOptions(model: Model<Api>, options?: SimpleStreamOptions, apiKey?: string): StreamOptions {
 	return {
 		temperature: options?.temperature,
-		maxTokens: options?.maxTokens || Math.min(model.maxTokens, 32000),
+		maxTokens: options?.maxTokens ?? (model.maxTokens > 0 ? Math.min(model.maxTokens, 32000) : undefined),
 		signal: options?.signal,
 		apiKey: apiKey || options?.apiKey,
 		cacheRetention: options?.cacheRetention,
@@ -11,6 +11,8 @@ export function buildBaseOptions(model: Model<Api>, options?: SimpleStreamOption
 		headers: options?.headers,
 		onPayload: options?.onPayload,
 		onResponse: options?.onResponse,
+		timeoutMs: options?.timeoutMs,
+		maxRetries: options?.maxRetries,
 		maxRetryDelayMs: options?.maxRetryDelayMs,
 		metadata: options?.metadata,
 	};
