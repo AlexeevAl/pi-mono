@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+import { fileURLToPath } from "node:url";
 
 // ============================================================================
 // Linda Agent — Entry Point
@@ -6,14 +6,13 @@
 //
 // Usage:
 //   node dist/main.js
-//   (from dev): tsx src/main.ts
+//   (from dev): tsgo -p tsconfig.build.json --watch
 //
 // Required env vars: see .env.example
 // ============================================================================
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 
 // Load .env before importing anything else
@@ -27,6 +26,8 @@ import { TelegramChannel } from "./channels/TelegramChannel.js";
 import { WebChannel } from "./channels/WebChannel.js";
 import { WhatsAppChannel } from "./channels/WhatsAppChannel.js";
 import { buildRuntimeConfig } from "./config.js";
+import { ClinicBackendClient } from "./core/backend-client.js";
+import { applyAgentRuntimeConfig } from "./runtime-config.js";
 
 // ============================================================================
 // Env helpers
@@ -66,17 +67,35 @@ function parseBoolean(raw: string | undefined, defaultValue: boolean): boolean {
 // ============================================================================
 
 async function main(): Promise<void> {
-	console.log("\n🤖 Linda Agent starting up...\n");
-
 	const skillsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "skills");
 
-	const config = buildRuntimeConfig(skillsDir);
+	let config = buildRuntimeConfig(skillsDir);
+
+	try {
+		const remoteRuntime = await new ClinicBackendClient(config.backend).getAgentRuntimeConfig();
+		config = applyAgentRuntimeConfig(config, remoteRuntime);
+		console.log(`[Config] runtime     = fetched from backend (${remoteRuntime.generatedAt ?? "no timestamp"})`);
+	} catch (err) {
+		const required = parseBoolean(optionalEnv("LINDA_RUNTIME_CONFIG_REQUIRED"), false);
+		const message = err instanceof Error ? err.message : String(err);
+		if (required) {
+			throw new Error(`Failed to fetch required runtime config: ${message}`);
+		}
+		console.warn(`[Config] runtime     = env fallback (${message})`);
+	}
 
 	console.log(`[Config] firmId       = ${config.shared.firmId}`);
 	console.log(`[Config] backend      = ${config.backend.baseUrl}`);
 	console.log(`[Config] llm          = ${config.llm.provider}/${config.llm.model}`);
 	console.log(`[Config] locale       = ${config.shared.locale}`);
 	console.log(`[Config] skillsDir    = ${config.shared.skillsDir}`);
+	console.log(`[Config] clientAgent  = ${config.clientAgent.enabled ? "enabled" : "disabled"}`);
+	console.log(`[Config] firmAgent    = ${config.adminAgent.enabled ? "enabled" : "disabled"}`);
+	if (config.shared.remoteRuntime) {
+		console.log(
+			`[Config] catalog      = ${config.shared.remoteRuntime.clinicCatalog.enabled ? "enabled" : "disabled"} (${config.shared.remoteRuntime.clinicCatalog.itemCount} items)`,
+		);
+	}
 	console.log();
 
 	// ---- Agents ---------------------------------------------------------------
@@ -86,8 +105,10 @@ async function main(): Promise<void> {
 
 	// ---- Channels -------------------------------------------------------------
 
-	const whatsappEnabled = process.env.WHATSAPP_ENABLED !== "false";
-	const telegramEnabled = process.env.TELEGRAM_ENABLED !== "false";
+	const whatsappEnabled =
+		process.env.WHATSAPP_ENABLED !== "false" && config.clientAgent.enabled && config.clientAgent.channels.whatsapp;
+	const telegramEnabled =
+		process.env.TELEGRAM_ENABLED !== "false" && config.adminAgent.enabled && config.adminAgent.channels.telegram;
 	const webEnabled = parseBoolean(optionalEnv("WEB_ENABLED"), false);
 
 	const channels: Array<{ start(): Promise<void>; stop(): void }> = [];
@@ -130,33 +151,42 @@ async function main(): Promise<void> {
 
 	if (webEnabled) {
 		const webRole = optionalEnv("WEB_ROLE") === "admin" ? "admin" : "client";
-		const webPort = Number(optionalEnv("WEB_PORT")) || 3034;
-		const allowedOrigins = optionalEnv("WEB_ALLOWED_ORIGINS") ?? "*";
-		const defaultActorId = optionalEnv("WEB_DEFAULT_ACTOR_ID");
-		const firmName = optionalEnv("FIRM_NAME") ?? config.shared.firmId;
+		const webRoleEnabled =
+			webRole === "admin"
+				? config.adminAgent.enabled && config.adminAgent.channels.web
+				: config.clientAgent.enabled && config.clientAgent.channels.web;
 
-		console.log(`[Web] role       = ${webRole}`);
-		console.log(`[Web] port       = ${webPort}`);
-		console.log(`[Web] origins    = ${allowedOrigins}`);
-		if (defaultActorId) {
-			console.log(`[Web] actorId    = ${defaultActorId}`);
+		if (!webRoleEnabled) {
+			console.log(`[Web] disabled by firm runtime config (role=${webRole})`);
+		} else {
+			const webPort = Number(optionalEnv("WEB_PORT")) || 3034;
+			const allowedOrigins = optionalEnv("WEB_ALLOWED_ORIGINS") ?? "*";
+			const defaultActorId = optionalEnv("WEB_DEFAULT_ACTOR_ID");
+			const firmName = optionalEnv("FIRM_NAME") ?? config.shared.firmId;
+
+			console.log(`[Web] role       = ${webRole}`);
+			console.log(`[Web] port       = ${webPort}`);
+			console.log(`[Web] origins    = ${allowedOrigins}`);
+			if (defaultActorId) {
+				console.log(`[Web] actorId    = ${defaultActorId}`);
+			}
+
+			channels.push(
+				new WebChannel(
+					{
+						port: webPort,
+						role: webRole,
+						allowedOrigins,
+						firmName,
+						defaultActorId,
+					},
+					{
+						clientAgent,
+						adminAgent,
+					},
+				),
+			);
 		}
-
-		channels.push(
-			new WebChannel(
-				{
-					port: webPort,
-					role: webRole,
-					allowedOrigins,
-					firmName,
-					defaultActorId,
-				},
-				{
-					clientAgent,
-					adminAgent,
-				},
-			),
-		);
 	} else {
 		console.log(`[Web] disabled (WEB_ENABLED=false)`);
 	}

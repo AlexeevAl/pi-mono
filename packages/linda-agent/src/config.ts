@@ -33,6 +33,7 @@ export function buildRuntimeConfig(skillsDir?: string): LindaRuntimeConfig {
 			skillsDir: defaultSkillsDir,
 		},
 		clientAgent: {
+			enabled: true,
 			enabledSkills: [
 				"problem_discovery",
 				"profile_enrichment",
@@ -43,16 +44,25 @@ export function buildRuntimeConfig(skillsDir?: string): LindaRuntimeConfig {
 				"objection_handling",
 				"human_handoff",
 			],
+			channels: {
+				whatsapp: true,
+				web: true,
+			},
 			defaults: {
 				channel: "whatsapp",
 			},
 		},
 		adminAgent: {
+			enabled: true,
 			enabledSkills: ["admin_assistant"],
 			allowedAdminIds: (process.env.ALLOWED_ADMIN_IDS ?? "")
 				.split(",")
 				.map((s) => s.trim())
 				.filter(Boolean),
+			channels: {
+				telegram: true,
+				web: true,
+			},
 			defaults: {
 				channel: "telegram",
 			},

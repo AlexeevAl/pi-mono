@@ -95,12 +95,14 @@ export class LindaAdminAgent {
 	private buildSystemPrompt(skillContent?: string, targetClientId?: string): string {
 		const persona =
 			skillContent ?? "# Linda Admin\nYou are Linda Admin — an operational assistant for clinic managers.";
+		const personalization = this.config.adminAgent.personalization?.trim();
 
 		const targetBlock = targetClientId
 			? `\n## CURRENT TARGET\n- **Client ID**: ${targetClientId}\n- Use view_session or other tools to fetch their details.`
 			: "\n## MODE\n- Global admin mode: no specific client in scope. Use list_sessions to explore.";
 
 		return `${persona}
+${personalization ? `\n## FIRM PERSONALIZATION\n${personalization}\n` : ""}
 ${targetBlock}
 
 ## HARD LIMITS

@@ -1,4 +1,4 @@
-import type { BackendConfig, ClubAgentContext } from "./types.js";
+import type { AgentRuntimeConfig, BackendConfig, ClubAgentContext } from "./types.js";
 
 export interface RequestOptions {
 	role: string;
@@ -12,6 +12,26 @@ export interface RequestOptions {
 export class ClinicBackendClient {
 	constructor(private readonly config: BackendConfig) {}
 
+	// --- Firm runtime config ---
+
+	public async getAgentRuntimeConfig(): Promise<AgentRuntimeConfig> {
+		const url = new URL("/api/agent/runtime-config", this.config.baseUrl);
+		url.searchParams.append("firmId", this.config.firmId);
+
+		const response = await fetch(url.toString(), {
+			headers: this.buildHeaders({
+				role: "client_agent",
+				channel: "web",
+			}),
+		});
+
+		if (!response.ok) {
+			throw new Error(`[backend] runtime config fetch failed: ${response.status} ${response.statusText}`);
+		}
+
+		return (await response.json()) as AgentRuntimeConfig;
+	}
+
 	// --- Client context ---
 
 	public async getAgentContext(clientId: string, options: RequestOptions): Promise<ClubAgentContext> {
@@ -20,8 +40,12 @@ export class ClinicBackendClient {
 		url.searchParams.append("channel", options.channel);
 		url.searchParams.append("agentRole", options.role);
 
+		console.log(`[Backend] Fetching context: ${url.toString()}`);
+		const headers = this.buildHeaders(options);
+		// console.log(`[Backend] Headers:`, headers);
+
 		const response = await fetch(url.toString(), {
-			headers: this.buildHeaders(options),
+			headers,
 		});
 
 		if (!response.ok) {

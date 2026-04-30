@@ -11,9 +11,12 @@ export type {
 	AdminDecideInput,
 	AdminSkillId,
 	AgentDecision,
+	AgentRuntimeConfig,
 	ClientDecideInput,
 	ClientSkillId,
 	ClubAgentContext,
 	ClubChannel,
+	FirmAgentBinding,
+	FirmAgentRuntimeConfig,
 	LindaRuntimeConfig,
 } from "./core/types.js";

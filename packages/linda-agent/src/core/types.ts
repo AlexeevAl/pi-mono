@@ -85,18 +85,27 @@ export interface SharedAgentConfig {
 	firmId: string;
 	locale: string;
 	skillsDir: string;
+	remoteRuntime?: AgentRuntimeConfig;
 }
 
 export interface ClientAgentConfig {
+	enabled: boolean;
 	enabledSkills: ClientSkillId[];
+	profileId?: string;
+	personalization?: string;
+	channels: Record<ClientChannel, boolean>;
 	defaults: {
 		channel: ClientChannel;
 	};
 }
 
 export interface AdminAgentConfig {
+	enabled: boolean;
 	enabledSkills: AdminSkillId[];
 	allowedAdminIds: string[];
+	profileId?: string;
+	personalization?: string;
+	channels: Record<AdminChannel, boolean>;
 	defaults: {
 		channel: AdminChannel;
 	};
@@ -108,6 +117,37 @@ export interface LindaRuntimeConfig {
 	shared: SharedAgentConfig;
 	clientAgent: ClientAgentConfig;
 	adminAgent: AdminAgentConfig;
+}
+
+// --- Firm runtime config fetched from psf-engine-v2 ---
+
+export type FirmAgentChannel = "web" | "whatsapp" | "telegram" | "ops";
+
+export interface FirmAgentBinding {
+	enabled: boolean;
+	profileId: string;
+	personalization?: string;
+	channels: Record<FirmAgentChannel, boolean>;
+}
+
+export interface FirmAgentRuntimeConfig {
+	clientAgent: FirmAgentBinding;
+	firmAgent: FirmAgentBinding;
+}
+
+export interface AgentRuntimeConfig {
+	firmId: string;
+	locale?: string;
+	intakeEnabled: boolean;
+	clubEnabled: boolean;
+	defaultChannel?: string;
+	defaultDoctorAssignmentMode?: string;
+	agentRuntime: FirmAgentRuntimeConfig;
+	clinicCatalog: {
+		enabled: boolean;
+		itemCount: number;
+	};
+	generatedAt?: string;
 }
 
 // --- Decide Inputs / Outputs ---

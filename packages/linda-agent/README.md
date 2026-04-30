@@ -104,6 +104,52 @@ packages/linda-agent/
 
 Конфигурация строится через `buildRuntimeConfig()` из переменных окружения.
 
+### Tenant model
+
+Текущая production-модель: **один `linda-agent` процесс на одну фирму**.
+
+Причина простая:
+
+- `LindaRuntimeConfig` собирается один раз из env и содержит один `FIRM_ID`;
+- `ClinicBackendClient` подписывает все backend-запросы этим `firmId`;
+- `WhatsAppChannel` держит одну Baileys-сессию в одном `WHATSAPP_AUTH_DIR`;
+- один WhatsApp номер клиники нельзя безопасно смешивать с другой фирмой в том же runtime.
+
+Для каждой фирмы нужен отдельный набор:
+
+- `FIRM_ID`
+- `EDGE_ID`
+- `FIRM_SHARED_SECRET`
+- `WHATSAPP_AUTH_DIR`
+- channel credentials (`TELEGRAM_BOT_TOKEN`, allowlists, web port/origin)
+
+Multi-tenant host в одном процессе возможен позже, но это отдельная архитектура: registry фирм, per-firm agent configs, per-firm backend clients, per-firm channel lifecycle, отдельные WhatsApp sockets/auth dirs и reload настроек без рестарта. В текущем коде этого нет.
+
+### Runtime config from backend
+
+На старте `linda-agent` пытается загрузить настройки фирмы из backend:
+
+```http
+GET /api/agent/runtime-config?firmId=<FIRM_ID>
+Authorization: Bearer <FIRM_SHARED_SECRET>
+X-PSF-Edge-Id: <EDGE_ID>
+```
+
+Контракт возвращает:
+
+- `locale`
+- `intakeEnabled`, `clubEnabled`
+- `defaultChannel`
+- `agentRuntime.clientAgent`
+- `agentRuntime.firmAgent`
+- `clinicCatalog.enabled`, `clinicCatalog.itemCount`
+
+`agentRuntime.*` управляет включением агента, выбранным `profileId`, `personalization` и разрешёнными каналами. Если backend недоступен, агент использует env fallback. Для строгого режима выставьте:
+
+```env
+LINDA_RUNTIME_CONFIG_REQUIRED=true
+```
+
 Создайте `.env` в корне пакета:
 
 ```env

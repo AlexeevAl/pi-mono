@@ -2,6 +2,10 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import type { ClinicBackendClient, RequestOptions } from "../core/backend-client.js";
 
+interface ClientToolsOptions {
+	allowEnrichmentLink?: boolean;
+}
+
 /**
  * Clinical tools for WhatsApp client sessions.
  * These interaction tools connect the agent's logic to the real psf-engine-v2 backend.
@@ -10,8 +14,9 @@ export function createClientTools(
 	client: ClinicBackendClient,
 	clientId: string,
 	options: RequestOptions,
+	toolOptions: ClientToolsOptions = {},
 ): AgentTool<any>[] {
-	return [
+	const tools: AgentTool<any>[] = [
 		{
 			name: "get_client_profile",
 			label: "Get Client Profile",
@@ -86,7 +91,10 @@ export function createClientTools(
 				}
 			},
 		},
-		{
+	];
+
+	if (toolOptions.allowEnrichmentLink) {
+		tools.push({
 			name: "request_enrichment_link",
 			label: "Request Enrichment Link",
 			description:
@@ -131,6 +139,8 @@ export function createClientTools(
 					return { content: [{ type: "text", text: `Error: ${(err as Error).message}` }], details: null };
 				}
 			},
-		},
-	];
+		});
+	}
+
+	return tools;
 }

@@ -58,6 +58,7 @@ export class WebChannel {
 	}
 
 	private async handleRequest(req: NodeRequest, res: ServerResponse): Promise<void> {
+		console.log(`[Web] ${req.method} ${req.url}`);
 		this.applyCors(req, res);
 
 		if (req.method === "OPTIONS") {
@@ -111,7 +112,9 @@ export class WebChannel {
 	}
 
 	private async handleChat(req: NodeRequest, res: ServerResponse): Promise<void> {
+		console.log(`[Web] Reading JSON body...`);
 		const body = await readJson<WebChatRequest>(req);
+		console.log(`[Web] Body received:`, body);
 		const text = String(body.text ?? "").trim();
 
 		if (!text) {
@@ -326,6 +329,11 @@ function buildChatHtml(config: WebChannelConfig): string {
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .bubble a {
+    color: var(--accent);
+    text-decoration: underline;
+    font-weight: 500;
+  }
   .msg.user .bubble {
     background: var(--user-bubble);
     border-bottom-right-radius: 4px;
@@ -517,7 +525,12 @@ function addMsg(role, text) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  bubble.textContent = text;
+  
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
+  html = html.replace(/(https?:\\/\\/[^\\s<*]+)/g, '<a href=\\"$1\\" target=\\"_blank\\" rel=\\"noopener noreferrer\\">$1</a>');
+  
+  bubble.innerHTML = html;
   wrap.appendChild(bubble);
 
   msgs.appendChild(wrap);
