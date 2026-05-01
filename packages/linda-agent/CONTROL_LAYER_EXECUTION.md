@@ -171,32 +171,35 @@ Change `LindaClientAgent.decide()` to this shape:
 
 Important migration note:
 
-Current code has direct booking confirmation logic in `LindaClientAgent`.
+Any direct effect currently inside `LindaClientAgent` should become a selected-skill proposal, not generic agent authority.
+Booking confirmation is only one example of that pattern.
 
-Do not rip it out first. Move it behind control in two steps:
+Do not solve this skill-by-skill with special routing in the edge. Move effects behind control in this order:
 
-1. Detect booking intent as today, but submit it as a proposed action.
-2. Only patch profile after postcheck returns an executable approved action.
+1. Scenario/context selects `activeSkillId`.
+2. `LindaClientAgent` loads and executes that selected skill.
+3. The skill output is converted into `AgentTurnProposal`.
+4. The control layer approves or blocks proposed actions.
+5. Only approved actions execute effects.
 
-Target proposed action:
+Example proposed action shape:
 
 ```ts
 {
-  actionId: "update_lead_fields",
-  reason: "client_requested_booking",
-  payload: {
-    identityPatch: {},
-    profilePatch: {}
-  }
+  skillId: activeSkillId,
+  actionId: "update_lead_fields" | "send_to_client" | "confirm_booking",
+  reason: "short_machine_readable_reason",
+  payload: {}
 }
 ```
 
 Acceptance:
 
-- no booking profile patch happens before postcheck;
+- no profile patch, message send, booking confirmation, CRM write, or webhook happens before postcheck;
 - active skill comes from control decision;
 - if control blocks, the client gets a short safe answer;
 - if postcheck edits the message, only final text is delivered.
+- read-only tools may run without action approval, but mutating tools must fail closed without guard approval.
 
 ## Phase 4: Wrap Admin Agent Turn
 
@@ -221,6 +224,7 @@ Admin-specific guard rules:
 - profile override must include reason;
 - booking confirmation must reference target session/client;
 - no silent human impersonation unless explicitly allowed.
+- global admin turns are admin sessions, not customer sessions; only targeted turns should pass `metadata.targetClientId`.
 
 Acceptance:
 
@@ -228,6 +232,7 @@ Acceptance:
 - authorized admin still requires backend precheck;
 - admin tool effects reference audit id;
 - `send_to_client` and `confirm_booking` are logged as controlled actions.
+- `override_field`, `send_to_client`, `confirm_booking`, and enrichment-link delivery fail closed if the guard is unavailable or blocks the action.
 
 ## Phase 5: Skill Pack Loading
 
@@ -334,10 +339,10 @@ Do it in this order:
 2. Add backend endpoint stubs in `psf-engine-v2`.
 3. Add `ClinicBackendClient` methods.
 4. Wrap `LindaClientAgent` with precheck/postcheck without removing old logic.
-5. Move direct booking profile patch behind approved proposed action.
+5. Move direct effects behind approved proposed actions.
 6. Wrap `LindaAdminAgent`.
 7. Require audit id for high-impact tools.
-8. Add tests for blocked booking and forbidden claims.
+8. Add tests for blocked effects and forbidden claims.
 
 ## Do Not Build Yet
 

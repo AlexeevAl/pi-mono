@@ -1,5 +1,6 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
 import { createAgent, extractTextContent } from "../core/base-agent.js";
+import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type {
 	AgentDecision,
@@ -23,12 +24,14 @@ import { createClientTools } from "../tools/client-tools.js";
  */
 export class LindaClientAgent {
 	private readonly backend: ClinicBackendClient;
+	private readonly control: ControlBackendClient;
 	private readonly skills: SkillsLoader;
 	private readonly config: LindaRuntimeConfig;
 
 	constructor(config: LindaRuntimeConfig) {
 		this.config = config;
 		this.backend = new ClinicBackendClient(config.backend);
+		this.control = new ControlBackendClient(config.backend);
 		this.skills = new SkillsLoader(config.shared.skillsDir);
 	}
 
@@ -36,6 +39,23 @@ export class LindaClientAgent {
 		const channel = input.channel ?? this.config.clientAgent.defaults.channel;
 		const role = "client_agent" as const;
 		const reqOptions = { role, channel };
+
+		const control = await this.control.precheckTurn({
+			firmId: this.config.shared.firmId,
+			agentId: `${this.config.shared.firmId}:client_agent`,
+			role,
+			channel,
+			sessionId: input.clientId,
+			incomingMessage: {
+				text: input.text,
+				receivedAt: new Date().toISOString(),
+			},
+		});
+		if (!control.allowed) {
+			return {
+				reply: "Лучше передам это администратору, чтобы не дать неточную информацию.",
+			};
+		}
 
 		console.log(`[Agent] Fetching context for client: ${input.clientId}...`);
 		let context: ClubAgentContext;
@@ -47,46 +67,94 @@ export class LindaClientAgent {
 		}
 		console.log(`[Agent] Context received. Active skill: ${context.activeSkill}`);
 
+		const effectiveContext = this.applyControlDecision(context, control);
+
 		if (this.isApprovalStatusQuestion(input.text)) {
 			const profileResponse = await this.backend.getClientProfile(input.clientId, reqOptions);
 			const approval = this.resolveApprovedAppointmentStatus(profileResponse);
 			if (approval) {
+				const reply = this.buildAppointmentApprovedReply(approval);
+				const checkedReply = await this.postcheckClientReply({
+					auditEventId: control.auditEventId,
+					clientId: input.clientId,
+					skillId: effectiveContext.activeSkill,
+					reply,
+					reqOptions,
+				});
 				return {
-					reply: this.buildAppointmentApprovedReply(approval),
-					context,
+					reply: checkedReply,
+					context: effectiveContext,
 				};
 			}
 		}
 
-		const bookingConfirmation = this.resolveBookingConfirmation(input.text);
+		const bookingConfirmation =
+			effectiveContext.activeSkill === "booking_consultation"
+				? this.resolveBookingConfirmation(input.text)
+				: undefined;
 		if (bookingConfirmation) {
 			console.log(`[Agent] Booking confirmation detected for client: ${input.clientId}`);
-			await this.backend.patchClientProfile(
-				input.clientId,
+			const reply = this.buildBookingConfirmationReply(bookingConfirmation);
+			const postcheck = await this.control.postcheckTurn(
 				{
-					identityPatch: bookingConfirmation.identityPatch,
-					profilePatch: bookingConfirmation.profilePatch,
-					sourceType: "intake_answer",
-					sourceRef: "linda_booking_confirmation",
+					auditEventId: control.auditEventId,
+					sessionId: input.clientId,
+					agentId: `${this.config.shared.firmId}:client_agent`,
+					skillId: "booking_consultation",
+					clientMessage: reply,
+					proposedActions: [
+						{
+							actionId: "update_lead_fields",
+							reason: "client_requested_booking",
+							payload: {
+								identityPatch: bookingConfirmation.identityPatch,
+								profilePatch: bookingConfirmation.profilePatch,
+								sourceType: "intake_answer",
+								sourceRef: "linda_booking_confirmation",
+							},
+						},
+					],
+					extractedFields: {
+						fullName: bookingConfirmation.fullName,
+						phone: bookingConfirmation.phone,
+						appointmentWindow: bookingConfirmation.appointmentWindow,
+					},
+					confidence: 0.9,
 				},
 				reqOptions,
 			);
+
+			const approvedUpdate = postcheck.executableActions.find((action) => action.actionId === "update_lead_fields");
+			if (!postcheck.allowed || !approvedUpdate) {
+				return {
+					reply:
+						postcheck.finalClientMessage ??
+						"Лучше передам это администратору, чтобы не дать неточную информацию.",
+					context: effectiveContext,
+				};
+			}
+
+			await this.backend.patchClientProfile(input.clientId, approvedUpdate.payload, reqOptions);
 			const updatedContext = await this.backend.getAgentContext(input.clientId, reqOptions);
 			return {
-				reply: this.buildBookingConfirmationReply(bookingConfirmation),
+				reply: postcheck.finalClientMessage ?? reply,
 				context: updatedContext,
 			};
 		}
 
 		// 2. Load persona
-		const skillId = this.resolveSkillId(context);
+		const skillId = this.resolveSkillId(effectiveContext);
 		console.log(`[Agent] Using skill: ${skillId}`);
 		const skill = this.skills.getSkill(skillId);
-		const systemPrompt = this.buildSystemPrompt(context, skill?.content);
+		const systemPrompt = this.buildSystemPrompt(effectiveContext, skill?.content);
 
 		// 3. Assemble tools
 		const tools = createClientTools(this.backend, input.clientId, reqOptions, {
-			allowEnrichmentLink: context.activeSkill === "profile_enrichment",
+			allowEnrichmentLink: effectiveContext.activeSkill === "profile_enrichment",
+			control: this.control,
+			auditEventId: control.auditEventId,
+			agentId: `${this.config.shared.firmId}:client_agent`,
+			skillId,
 		});
 
 		// 4. Create runtime
@@ -126,8 +194,83 @@ export class LindaClientAgent {
 		// 7. Extract reply
 		const lastMsg = agent.state.messages[agent.state.messages.length - 1];
 		const reply = extractTextContent(lastMsg);
+		const checkedReply = await this.postcheckClientReply({
+			auditEventId: control.auditEventId,
+			clientId: input.clientId,
+			skillId,
+			reply,
+			reqOptions,
+		});
 
-		return { reply, context };
+		return { reply: checkedReply, context: effectiveContext };
+	}
+
+	private async postcheckClientReply(input: {
+		auditEventId: string;
+		clientId: string;
+		skillId: ClientSkillId;
+		reply: string;
+		reqOptions: { role: "client_agent"; channel: "whatsapp" | "web" };
+	}) {
+		const postcheck = await this.control.postcheckTurn(
+			{
+				auditEventId: input.auditEventId,
+				sessionId: input.clientId,
+				agentId: `${this.config.shared.firmId}:client_agent`,
+				skillId: input.skillId,
+				clientMessage: input.reply,
+				proposedActions: [],
+				extractedFields: {},
+				confidence: 0.8,
+			},
+			input.reqOptions,
+		);
+		return postcheck.finalClientMessage ?? input.reply;
+	}
+
+	private applyControlDecision(
+		context: ClubAgentContext,
+		control: { activeSkillId: string; allowedSkillIds: string[]; skillContext: Record<string, unknown> },
+	): ClubAgentContext {
+		const activeSkill = this.resolveControlSkillId(control.activeSkillId, context.activeSkill);
+		return {
+			...context,
+			activeSkill,
+			allowedSkills: this.resolveAllowedControlSkills(control.allowedSkillIds, context.allowedSkills),
+			conversationGoal: activeSkill === "booking_consultation" ? "book_consultation" : context.conversationGoal,
+			skillContext: control.skillContext,
+		};
+	}
+
+	private resolveAllowedControlSkills(controlSkillIds: string[], fallback: ClientSkillId[]) {
+		const result = controlSkillIds
+			.map((skillId) => this.resolveControlSkillId(skillId, undefined))
+			.filter((skillId): skillId is ClientSkillId => Boolean(skillId));
+		return result.length > 0 ? result : fallback;
+	}
+
+	private resolveControlSkillId(skillId: string, fallback: ClientSkillId | undefined): ClientSkillId {
+		if (this.isClientSkillId(skillId)) {
+			return skillId;
+		}
+		return fallback ?? "manager";
+	}
+
+	private isClientSkillId(skillId: string): skillId is ClientSkillId {
+		return [
+			"problem_discovery",
+			"profile_enrichment",
+			"service_recommendation",
+			"booking_consultation",
+			"post_procedure_checkin",
+			"reactivation",
+			"membership_offer",
+			"annual_plan_tracking",
+			"objection_handling",
+			"human_handoff",
+			"manager",
+			"none",
+		].includes(skillId);
 	}
 
 	private resolveSkillId(context: ClubAgentContext): ClientSkillId {

@@ -1,5 +1,6 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
 import { createAgent, extractTextContent } from "../core/base-agent.js";
+import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type { AdminDecideInput, AdminSkillId, AgentDecision, LindaRuntimeConfig } from "../core/types.js";
 import { onToolExecutionEnd, onToolExecutionStart } from "../policies/shared-hooks.js";
@@ -21,12 +22,14 @@ import { createAdminTools } from "../tools/admin-tools.js";
  */
 export class LindaAdminAgent {
 	private readonly backend: ClinicBackendClient;
+	private readonly control: ControlBackendClient;
 	private readonly skills: SkillsLoader;
 	private readonly config: LindaRuntimeConfig;
 
 	constructor(config: LindaRuntimeConfig) {
 		this.config = config;
 		this.backend = new ClinicBackendClient(config.backend);
+		this.control = new ControlBackendClient(config.backend);
 		this.skills = new SkillsLoader(config.shared.skillsDir);
 	}
 
@@ -40,14 +43,41 @@ export class LindaAdminAgent {
 		const channel = input.channel ?? this.config.adminAgent.defaults.channel;
 		const role = "admin_agent" as const;
 		const reqOptions = { role, channel };
+		const sessionId = input.targetClientId ?? input.threadId ?? input.adminId;
+		const control = await this.control.precheckTurn({
+			firmId: this.config.shared.firmId,
+			agentId: `${this.config.shared.firmId}:admin_agent`,
+			role,
+			channel,
+			sessionId,
+			metadata: {
+				...(input.metadata ?? {}),
+				...(input.targetClientId ? { targetClientId: input.targetClientId } : {}),
+			},
+			incomingMessage: {
+				text: input.text,
+				receivedAt: new Date().toISOString(),
+			},
+		});
+		if (!control.allowed) {
+			return {
+				reply: control.blockedReason
+					? `Нужно вмешательство человека. Причина: ${control.blockedReason}.`
+					: "Нужно вмешательство человека.",
+			};
+		}
 
 		// 1. Load admin persona
-		const skillId = this.resolveSkillId();
+		const skillId = this.resolveSkillId(control.activeSkillId);
 		const skill = this.skills.getSkill(skillId);
 		const systemPrompt = this.buildSystemPrompt(skill?.content, input.targetClientId);
 
 		// 2. Assemble admin tools
-		const tools = createAdminTools(this.backend, reqOptions);
+		const tools = createAdminTools(this.backend, reqOptions, {
+			control: this.control,
+			auditEventId: control.auditEventId,
+			agentId: `${this.config.shared.firmId}:admin_agent`,
+		});
 
 		// 3. Create runtime
 		const agent = createAgent({
@@ -81,15 +111,37 @@ export class LindaAdminAgent {
 		// 6. Extract reply
 		const lastMsg = agent.state.messages[agent.state.messages.length - 1];
 		const reply = extractTextContent(lastMsg);
+		const postcheck = await this.control.postcheckTurn(
+			{
+				auditEventId: control.auditEventId,
+				sessionId,
+				agentId: `${this.config.shared.firmId}:admin_agent`,
+				skillId,
+				adminMessage: reply,
+				proposedActions: [],
+				extractedFields: {},
+				confidence: 0.8,
+			},
+			reqOptions,
+		);
 
-		return { reply };
+		return { reply: postcheck.finalAdminMessage ?? reply };
 	}
 
-	private resolveSkillId(): AdminSkillId {
+	private resolveSkillId(controlSkillId?: string): AdminSkillId {
 		const enabled = this.config.adminAgent.enabledSkills;
+		if (controlSkillId && this.isAdminSkillId(controlSkillId) && enabled.includes(controlSkillId)) {
+			return controlSkillId;
+		}
 		// Primary admin skill is admin_assistant
 		if (enabled.includes("admin_assistant")) return "admin_assistant";
 		return enabled[0] ?? "admin_assistant";
+	}
+
+	private isAdminSkillId(skillId: string): skillId is AdminSkillId {
+		return ["admin_assistant", "client_lookup", "profile_review", "manual_followup", "escalation_review"].includes(
+			skillId,
+		);
 	}
 
 	private buildSystemPrompt(skillContent?: string, targetClientId?: string): string {

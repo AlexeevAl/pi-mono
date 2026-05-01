@@ -146,6 +146,7 @@ export interface ControlTurnRequest {
 	role: LindaAgentRole;
 	channel: ClientChannel | AdminChannel;
 	sessionId: SessionId;
+	metadata?: Record<string, unknown>;
 	incomingMessage: IncomingControlMessage;
 }
 

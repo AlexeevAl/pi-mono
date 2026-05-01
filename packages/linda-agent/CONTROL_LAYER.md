@@ -296,6 +296,7 @@ type ControlTurnRequest = {
   role: "client_agent" | "admin_agent";
   channel: ChannelId;
   sessionId: string;
+  metadata?: Record<string, unknown>;
   incomingMessage: {
     text: string;
     localeHint?: string;
@@ -303,6 +304,9 @@ type ControlTurnRequest = {
   };
 };
 ```
+
+For `admin_agent`, `sessionId` can be an admin thread id. A targeted admin turn should pass `metadata.targetClientId`.
+Global admin turns must not create or mutate a customer session just because an admin thread id exists.
 
 The control layer returns:
 

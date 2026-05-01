@@ -1,6 +1,13 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import type { ClinicBackendClient, RequestOptions } from "../core/backend-client.js";
+import type { ControlBackendClient } from "../core/control-client.js";
+
+interface AdminToolsOptions {
+	control?: ControlBackendClient;
+	auditEventId?: string;
+	agentId?: string;
+}
 
 /**
  * Session management tools for Telegram admin sessions.
@@ -10,7 +17,11 @@ import type { ClinicBackendClient, RequestOptions } from "../core/backend-client
  *  - Global: no targetClientId (list sessions, overview)
  *  - Targeted: targetClientId specified (view, note, send message)
  */
-export function createAdminTools(client: ClinicBackendClient, options: RequestOptions): AgentTool<any>[] {
+export function createAdminTools(
+	client: ClinicBackendClient,
+	options: RequestOptions,
+	toolOptions: AdminToolsOptions = {},
+): AgentTool<any>[] {
 	return [
 		{
 			name: "list_sessions",
@@ -94,7 +105,16 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 			}),
 			execute: async (_id, args: any) => {
 				try {
-					const result = await client.adminTool("override-field", args, options);
+					const approval = await approveAdminAction(toolOptions, options, {
+						actionId: "override_field",
+						sessionId: args.sessionId,
+						reason: args.reason,
+						payload: args,
+					});
+					if (!approval.allowed) {
+						return blockedToolResult(approval.blockedReason);
+					}
+					const result = await client.adminTool("override-field", approval.payload, options);
 					return {
 						content: [
 							{
@@ -121,7 +141,17 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 			}),
 			execute: async (_id, args: any) => {
 				try {
-					const result = await client.adminTool("send-to-client", args, options);
+					const approval = await approveAdminAction(toolOptions, options, {
+						actionId: "send_to_client",
+						sessionId: args.sessionId,
+						reason: "admin_requested_client_message",
+						payload: args,
+						adminMessage: args.message,
+					});
+					if (!approval.allowed) {
+						return blockedToolResult(approval.blockedReason);
+					}
+					const result = await client.adminTool("send-to-client", approval.payload, options);
 					return {
 						content: [
 							{
@@ -154,7 +184,17 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 			}),
 			execute: async (_id, args: any) => {
 				try {
-					const result = await client.adminTool("confirm-booking", args, options);
+					const approval = await approveAdminAction(toolOptions, options, {
+						actionId: "confirm_booking",
+						sessionId: args.sessionId,
+						reason: "admin_confirmed_booking",
+						payload: args,
+						adminMessage: args.message,
+					});
+					if (!approval.allowed) {
+						return blockedToolResult(approval.blockedReason);
+					}
+					const result = await client.adminTool("confirm-booking", approval.payload, options);
 					const nextStep = typeof result.nextStep === "string" ? result.nextStep : "appointment_approved";
 					return {
 						content: [
@@ -234,7 +274,18 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 						};
 					}
 
-					// 2. Generate the link
+					// 2. Approve and generate the link
+					const linkApproval = await approveAdminAction(toolOptions, options, {
+						actionId: "request_enrichment_link",
+						sessionId: resolvedClientId,
+						reason: "admin_requested_enrichment_link_generation",
+						payload: {
+							mode: args.mode || "intake",
+						},
+					});
+					if (!linkApproval.allowed) {
+						return blockedToolResult(linkApproval.blockedReason);
+					}
 					const { link } = await client.requestEnrichmentLink(resolvedClientId, options, {
 						mode: args.mode || "intake",
 					});
@@ -246,14 +297,20 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 					const fullMessage = `${intro}\n\n${link}`;
 
 					// 4. Send to client
-					const sendResult = await client.adminTool(
-						"send-to-client",
-						{
+					const approval = await approveAdminAction(toolOptions, options, {
+						actionId: "send_to_client",
+						sessionId: resolvedClientId,
+						reason: "admin_requested_enrichment_link",
+						payload: {
 							sessionId: resolvedClientId,
 							message: fullMessage,
 						},
-						options,
-					);
+						adminMessage: fullMessage,
+					});
+					if (!approval.allowed) {
+						return blockedToolResult(approval.blockedReason);
+					}
+					const sendResult = await client.adminTool("send-to-client", approval.payload, options);
 
 					return {
 						content: [
@@ -272,4 +329,62 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 			},
 		},
 	];
+}
+
+async function approveAdminAction(
+	toolOptions: AdminToolsOptions,
+	options: RequestOptions,
+	action: {
+		actionId: string;
+		sessionId?: string;
+		reason: string;
+		payload: Record<string, unknown>;
+		adminMessage?: string;
+	},
+): Promise<{ allowed: true; payload: Record<string, unknown> } | { allowed: false; blockedReason?: string }> {
+	if (!toolOptions.control || !toolOptions.auditEventId || !toolOptions.agentId) {
+		return { allowed: false, blockedReason: "control_guard_not_configured" };
+	}
+	const sessionId = action.sessionId?.trim();
+	if (!sessionId) {
+		return { allowed: false, blockedReason: "missing_session_id" };
+	}
+	const result = await toolOptions.control.postcheckTurn(
+		{
+			auditEventId: toolOptions.auditEventId,
+			sessionId,
+			agentId: toolOptions.agentId,
+			skillId: "admin_assistant",
+			adminMessage: action.adminMessage,
+			proposedActions: [
+				{
+					actionId: action.actionId,
+					reason: action.reason,
+					payload: action.payload,
+				},
+			],
+			extractedFields: {},
+			confidence: 0.9,
+		},
+		options,
+	);
+	const approved = result.executableActions.find((item) => item.actionId === action.actionId);
+	if (!result.allowed || !approved) {
+		return { allowed: false, blockedReason: result.blockedReason ?? "action_not_approved" };
+	}
+	return { allowed: true, payload: approved.payload };
+}
+
+function blockedToolResult(blockedReason?: string) {
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: blockedReason
+					? `Action blocked by control guard: ${blockedReason}`
+					: "Action blocked by control guard.",
+			},
+		],
+		details: null,
+	};
 }
