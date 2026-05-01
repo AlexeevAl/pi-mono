@@ -1,6 +1,7 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
 import { createAgent, extractTextContent } from "../core/base-agent.js";
 import { ControlBackendClient } from "../core/control-client.js";
+import type { ActionExecution } from "../core/control-types.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type {
 	AgentDecision,
@@ -10,6 +11,7 @@ import type {
 	LindaRuntimeConfig,
 } from "../core/types.js";
 import { onToolExecutionEnd, onToolExecutionStart } from "../policies/shared-hooks.js";
+import { resolveClientSkillProposal } from "../skills/client-skill-proposals.js";
 import { createClientTools } from "../tools/client-tools.js";
 
 /**
@@ -88,44 +90,20 @@ export class LindaClientAgent {
 			}
 		}
 
-		const bookingConfirmation =
-			effectiveContext.activeSkill === "booking_consultation"
-				? this.resolveBookingConfirmation(input.text)
-				: undefined;
-		if (bookingConfirmation) {
-			console.log(`[Agent] Booking confirmation detected for client: ${input.clientId}`);
-			const reply = this.buildBookingConfirmationReply(bookingConfirmation);
-			const postcheck = await this.control.postcheckTurn(
-				{
-					auditEventId: control.auditEventId,
-					sessionId: input.clientId,
-					agentId: `${this.config.shared.firmId}:client_agent`,
-					skillId: "booking_consultation",
-					clientMessage: reply,
-					proposedActions: [
-						{
-							actionId: "update_lead_fields",
-							reason: "client_requested_booking",
-							payload: {
-								identityPatch: bookingConfirmation.identityPatch,
-								profilePatch: bookingConfirmation.profilePatch,
-								sourceType: "intake_answer",
-								sourceRef: "linda_booking_confirmation",
-							},
-						},
-					],
-					extractedFields: {
-						fullName: bookingConfirmation.fullName,
-						phone: bookingConfirmation.phone,
-						appointmentWindow: bookingConfirmation.appointmentWindow,
-					},
-					confidence: 0.9,
-				},
-				reqOptions,
-			);
-
-			const approvedUpdate = postcheck.executableActions.find((action) => action.actionId === "update_lead_fields");
-			if (!postcheck.allowed || !approvedUpdate) {
+		const selectedSkillProposal = resolveClientSkillProposal({
+			text: input.text,
+			context: effectiveContext,
+			auditEventId: control.auditEventId,
+			sessionId: input.clientId,
+			agentId: `${this.config.shared.firmId}:client_agent`,
+		});
+		if (selectedSkillProposal) {
+			console.log(`[Agent] Selected skill proposal created: ${effectiveContext.activeSkill}`);
+			const postcheck = await this.control.postcheckTurn(selectedSkillProposal.proposal, reqOptions);
+			if (
+				!postcheck.allowed ||
+				!this.allProposedActionsApproved(selectedSkillProposal.proposal, postcheck.executableActions)
+			) {
 				return {
 					reply:
 						postcheck.finalClientMessage ??
@@ -134,10 +112,10 @@ export class LindaClientAgent {
 				};
 			}
 
-			await this.backend.patchClientProfile(input.clientId, approvedUpdate.payload, reqOptions);
+			await this.executeApprovedClientActions(input.clientId, postcheck.executableActions, reqOptions);
 			const updatedContext = await this.backend.getAgentContext(input.clientId, reqOptions);
 			return {
-				reply: postcheck.finalClientMessage ?? reply,
+				reply: postcheck.finalClientMessage ?? selectedSkillProposal.reply,
 				context: updatedContext,
 			};
 		}
@@ -228,6 +206,27 @@ export class LindaClientAgent {
 		return postcheck.finalClientMessage ?? input.reply;
 	}
 
+	private allProposedActionsApproved(
+		proposal: { proposedActions: Array<{ actionId: string }> },
+		executableActions: ActionExecution[],
+	) {
+		return proposal.proposedActions.every((proposedAction) =>
+			executableActions.some((executableAction) => executableAction.actionId === proposedAction.actionId),
+		);
+	}
+
+	private async executeApprovedClientActions(
+		clientId: string,
+		actions: ActionExecution[],
+		reqOptions: { role: "client_agent"; channel: "whatsapp" | "web" },
+	) {
+		for (const action of actions) {
+			if (action.actionId === "update_lead_fields") {
+				await this.backend.patchClientProfile(clientId, action.payload, reqOptions);
+			}
+		}
+	}
+
 	private applyControlDecision(
 		context: ClubAgentContext,
 		control: { activeSkillId: string; allowedSkillIds: string[]; skillContext: Record<string, unknown> },
@@ -301,79 +300,6 @@ ${context.nextBestAction ? `- **Suggested Next Action**: ${context.nextBestActio
 4. Be concise, warm, and professional.
 5. If the active skill is not profile_enrichment, do not send another intake/enrichment link. Ask small follow-up questions in chat only when needed.
 `;
-	}
-
-	private resolveBookingConfirmation(text: string) {
-		const normalized = text.trim().toLowerCase();
-		const hasBookingIntent =
-			normalized.includes("подтверждаю запись") ||
-			normalized.includes("хочу записаться") ||
-			normalized.includes("запишите") ||
-			normalized.includes("записаться");
-		const hasSlot =
-			/\b\d{1,2}[:.]\d{2}\b/.test(normalized) ||
-			/(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)/i.test(normalized);
-		if (!hasBookingIntent || !hasSlot) {
-			return undefined;
-		}
-
-		const fullName = this.extractName(text);
-		const phone = this.extractPhone(text);
-		const budgetLevel = normalized.includes("средн") ? "medium" : undefined;
-		const appointmentWindow = this.extractAppointmentWindow(text);
-		const nextStep = appointmentWindow ? `booking_confirmed:${appointmentWindow}` : "booking_confirmed";
-
-		return {
-			fullName,
-			phone,
-			appointmentWindow,
-			identityPatch: {
-				...(fullName ? { fullName } : {}),
-				...(phone ? { phone } : {}),
-				preferredChannel: "whatsapp",
-			},
-			profilePatch: {
-				activeStatus: "booking_confirmed",
-				nextStep,
-				budgetLevel: budgetLevel ?? "medium",
-				paymentCapacity: budgetLevel ?? "medium",
-				motivationsJson: ["confirmed_booking_request"],
-			},
-		};
-	}
-
-	private extractName(text: string) {
-		const match = /(?:имя|меня зовут)\s*[:-]?\s*([А-ЯA-ZЁ][А-ЯA-ZЁа-яa-zё\- ]{1,60})/iu.exec(text);
-		return match?.[1]
-			?.trim()
-			.replace(/[.,;].*$/, "")
-			.trim();
-	}
-
-	private extractPhone(text: string) {
-		const match = /(?:\+?\d[\d\s().-]{7,}\d)/.exec(text);
-		return match?.[0]?.replace(/[^\d+]/g, "");
-	}
-
-	private extractAppointmentWindow(text: string) {
-		const dayMatch = /(понедельник|вторник|среду|среда|четверг|пятницу|пятница|субботу|суббота|воскресенье)/i.exec(
-			text,
-		);
-		const timeMatch = /\b(\d{1,2}[:.]\d{2})\b/.exec(text);
-		const day = dayMatch?.[1]?.toLowerCase();
-		const time = timeMatch?.[1]?.replace(".", ":");
-		const displayDay = day ? this.normalizeAppointmentDay(day) : undefined;
-		if (displayDay && time) return `${displayDay} ${time}`;
-		return time ?? displayDay;
-	}
-
-	private buildBookingConfirmationReply(input: { fullName?: string; phone?: string; appointmentWindow?: string }) {
-		const nameLine = input.fullName ? `, ${input.fullName}` : "";
-		const slot = input.appointmentWindow ?? "выбранный слот";
-		const contact = input.phone ? ` Контакт для подтверждения: ${input.phone}.` : "";
-		return `Готово${nameLine}: я зафиксировала запрос на запись на ${slot} в центральной локации.${contact}
-
-До визита подготовьте список домашнего ухода, даты недавних процедур/пилингов и не используйте ретинол, кислоты или агрессивные скрабы за день до консультации. Администратор/врач увидит ваш профиль: чувствительная кожа, цель — мягкое улучшение тона и снижение покраснений, старт — консультация плюс одна щадящая процедура.`;
 	}
 
 	private isApprovalStatusQuestion(text: string) {
