@@ -1,5 +1,6 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
 import { createAgent, extractTextContent } from "../core/base-agent.js";
+import { applyClientControlDecision } from "../core/client-control-context.js";
 import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type {
@@ -69,7 +70,7 @@ export class LindaClientAgent {
 		}
 		console.log(`[Agent] Context received. Active skill: ${context.activeSkill}`);
 
-		const effectiveContext = this.applyControlDecision(context, control);
+		const effectiveContext = applyClientControlDecision(context, control);
 
 		if (this.isApprovalStatusQuestion(input.text)) {
 			const profileResponse = await this.backend.getClientProfile(input.clientId, reqOptions);
@@ -212,51 +213,6 @@ export class LindaClientAgent {
 			input.reqOptions,
 		);
 		return postcheck.finalClientMessage ?? input.reply;
-	}
-
-	private applyControlDecision(
-		context: ClubAgentContext,
-		control: { activeSkillId: string; allowedSkillIds: string[]; skillContext: Record<string, unknown> },
-	): ClubAgentContext {
-		const activeSkill = this.resolveControlSkillId(control.activeSkillId, context.activeSkill);
-		return {
-			...context,
-			activeSkill,
-			allowedSkills: this.resolveAllowedControlSkills(control.allowedSkillIds, context.allowedSkills),
-			conversationGoal: activeSkill === "booking_consultation" ? "book_consultation" : context.conversationGoal,
-			skillContext: control.skillContext,
-		};
-	}
-
-	private resolveAllowedControlSkills(controlSkillIds: string[], fallback: ClientSkillId[]) {
-		const result = controlSkillIds
-			.map((skillId) => this.resolveControlSkillId(skillId, undefined))
-			.filter((skillId): skillId is ClientSkillId => Boolean(skillId));
-		return result.length > 0 ? result : fallback;
-	}
-
-	private resolveControlSkillId(skillId: string, fallback: ClientSkillId | undefined): ClientSkillId {
-		if (this.isClientSkillId(skillId)) {
-			return skillId;
-		}
-		return fallback ?? "manager";
-	}
-
-	private isClientSkillId(skillId: string): skillId is ClientSkillId {
-		return [
-			"problem_discovery",
-			"profile_enrichment",
-			"service_recommendation",
-			"booking_consultation",
-			"post_procedure_checkin",
-			"reactivation",
-			"membership_offer",
-			"annual_plan_tracking",
-			"objection_handling",
-			"human_handoff",
-			"manager",
-			"none",
-		].includes(skillId);
 	}
 
 	private resolveSkillId(context: ClubAgentContext): ClientSkillId {
