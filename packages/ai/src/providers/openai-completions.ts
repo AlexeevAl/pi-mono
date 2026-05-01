@@ -84,6 +84,8 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 			timestamp: Date.now(),
 		};
 
+		console.log(`[pi-ai] Using OPENAI-COMPLETIONS provider for model: ${model.id}`);
+
 		try {
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
 			const client = createClient(model, context, apiKey, options?.headers);

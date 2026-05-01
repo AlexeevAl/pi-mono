@@ -42,14 +42,19 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 			label: "View Session",
 			description:
 				"View detailed info about a specific client session: " +
-				"collected data, current step, history. Show only last 8 chars of any session ID.",
+				"collected data, current step, and recent patient conversation messages. Show only last 8 chars of any session ID.",
 			parameters: Type.Object({
 				sessionId: Type.String({ description: "Session ID to view (partial suffix is fine)" }),
 			}),
 			execute: async (_id, args: any) => {
 				try {
 					const result = await client.viewSession(args.sessionId, options);
-					return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+					const patientHistory = await client.listClientMessages(args.sessionId, options, { limit: 30 });
+					const details = {
+						...(result && typeof result === "object" ? result : { session: result }),
+						patientHistory,
+					};
+					return { content: [{ type: "text", text: JSON.stringify(details) }], details };
 				} catch (err) {
 					return { content: [{ type: "text", text: `Error: ${(err as Error).message}` }], details: null };
 				}
@@ -122,6 +127,42 @@ export function createAdminTools(client: ClinicBackendClient, options: RequestOp
 							{
 								type: "text",
 								text: result.ok ? "Message sent to client." : "Message logged (delivery unavailable).",
+							},
+						],
+						details: result,
+					};
+				} catch (err) {
+					return { content: [{ type: "text", text: `Error: ${(err as Error).message}` }], details: null };
+				}
+			},
+		},
+		{
+			name: "confirm_booking",
+			label: "Confirm Doctor Booking",
+			description:
+				"Confirm that an administrator reviewed the requested doctor appointment and approved it. " +
+				"This assigns the doctor, marks the client profile as appointment_approved, and logs a client-visible approval message.",
+			parameters: Type.Object({
+				sessionId: Type.String({ description: "Client session/client ID to approve" }),
+				doctorId: Type.String({ description: "Doctor identifier or display name" }),
+				doctorName: Type.Optional(Type.String({ description: "Optional doctor display name" })),
+				appointmentWindow: Type.Optional(
+					Type.String({ description: "Approved appointment slot, e.g. 'вторник 16:30'" }),
+				),
+				note: Type.Optional(Type.String({ description: "Internal clinical/admin note" })),
+				message: Type.Optional(Type.String({ description: "Client-facing approval message" })),
+			}),
+			execute: async (_id, args: any) => {
+				try {
+					const result = await client.adminTool("confirm-booking", args, options);
+					const nextStep = typeof result.nextStep === "string" ? result.nextStep : "appointment_approved";
+					return {
+						content: [
+							{
+								type: "text",
+								text: result.ok
+									? `Запись просмотрена администратором и утверждена врачом. Текущий статус записи: ${nextStep}.`
+									: "Подтверждение записи не выполнено.",
 							},
 						],
 						details: result,

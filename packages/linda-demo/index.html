@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>LINDA OS Sales Demo</title>
+		<link rel="stylesheet" href="./styles.css" />
+	</head>
+	<body>
+		<div class="app-shell">
+			<header class="topbar">
+				<div class="brand">
+					<div class="brand-mark">L</div>
+					<div>
+						<p class="eyebrow">LINDA OS</p>
+						<h1>Демо для премиум-клиники</h1>
+					</div>
+				</div>
+				<div class="topbar-actions">
+					<div class="language-switcher" aria-label="Выбор языка">
+						<button class="language-button active" data-language="ru" type="button">RU</button>
+						<button class="language-button" data-language="en" type="button">EN</button>
+						<button class="language-button" data-language="he" type="button">HE</button>
+					</div>
+					<button class="ghost-button" id="resetDemo" type="button">Сбросить</button>
+					<button class="ghost-button" id="startPresentation" type="button">Показать всю презентацию</button>
+					<button class="primary-button" id="startDemo" type="button">Показать диалог с пациентом</button>
+				</div>
+			</header>
+
+			<main class="demo-grid">
+				<section class="left-pane" aria-label="Сценарий продажи">
+					<div class="offer-panel">
+						<p class="eyebrow">Предложение</p>
+						<h2 id="heroRevenueTitle">У вас уже есть +108 000 ₪ в базе. Вы просто их не забрали.</h2>
+						<p>
+							Показываем не систему, а понятный путь к первым записям: база, первые 50 пациентов,
+							переписка, запись, врач, повторный визит и решение для владельца.
+						</p>
+						<div class="hero-proof-row" aria-label="Ключевые условия запуска">
+							<span>Без рекламы</span>
+							<span>Без найма</span>
+							<span>7 дней до первых записей</span>
+						</div>
+						<div class="metric-row">
+							<div>
+								<strong id="reactivatedMetric">0</strong>
+								<span>пациентов вернули</span>
+							</div>
+							<div>
+								<strong class="money-value" id="revenueMetric">0 <span>₪</span></strong>
+								<span>прогноз выручки</span>
+							</div>
+							<div>
+								<strong id="chairsMetric">0%</strong>
+								<span>загрузка кресел</span>
+							</div>
+						</div>
+					</div>
+
+					<nav class="stage-tabs" aria-label="Этапы демо">
+						<button class="stage-tab active" data-stage="money" type="button">Деньги</button>
+						<button class="stage-tab" data-stage="before" type="button">Сейчас</button>
+						<button class="stage-tab" data-stage="campaign" type="button">50 пациентов</button>
+						<button class="stage-tab" data-stage="patient" type="button">Диалог</button>
+						<button class="stage-tab" data-stage="plan" type="button">Страница</button>
+						<button class="stage-tab" data-stage="doctor" type="button">Врач</button>
+						<button class="stage-tab" data-stage="followup" type="button">Возврат</button>
+						<button class="stage-tab" data-stage="owner" type="button">Владелец</button>
+						<button class="stage-tab" data-stage="pilot" type="button">Пилот</button>
+					</nav>
+
+					<section class="stage-panel active" id="moneyStage">
+						<div class="money-screen">
+							<div class="screen-header">
+								<div>
+									<p class="eyebrow">Быстрый расчет</p>
+									<h2>Даже небольшой возврат дает ощутимую выручку</h2>
+								</div>
+								<span class="status-pill" id="marketLabel">Израиль</span>
+							</div>
+							<div class="market-switcher" aria-label="Выбор рынка">
+								<button class="market-button active" data-market="il" type="button">Израиль</button>
+								<button class="market-button" data-market="us" type="button">США</button>
+								<button class="market-button" data-market="eu" type="button">Европа</button>
+								<button class="market-button" data-market="ru" type="button">Россия</button>
+							</div>
+							<div class="risk-switcher" aria-label="Сценарий возврата">
+								<button class="risk-button" data-rate="3" type="button">Консервативно 3%</button>
+								<button class="risk-button active" data-rate="5" type="button">Реалистично 5%</button>
+								<button class="risk-button" data-rate="10" type="button">Агрессивно 10%</button>
+							</div>
+							<div class="calculator-controls">
+								<label>
+									<span>Пациентов в базе</span>
+									<input id="basePatientsInput" min="100" step="100" type="number" value="4000" />
+								</label>
+								<label>
+									<span>Не были 6 месяцев</span>
+									<input id="inactivePatientsInput" min="10" step="10" type="number" value="1200" />
+								</label>
+								<label>
+									<span>Вернем, %</span>
+									<input id="returnRateInput" min="1" max="30" step="1" type="number" value="5" />
+								</label>
+								<label>
+									<span>Средний чек</span>
+									<input id="averageCheckInput" min="1" step="50" type="number" value="1800" />
+								</label>
+							</div>
+							<div class="calculator-grid">
+								<div class="calc-input">
+									<span>Пациентов в базе</span>
+									<strong id="basePatientsValue">4 000</strong>
+								</div>
+								<div class="calc-input">
+									<span>Не были 6 месяцев</span>
+									<strong id="inactivePatientsValue">1 200</strong>
+								</div>
+								<div class="calc-input">
+									<span id="returnRateLabel">Вернули 5%</span>
+									<strong id="returnedPatientsValue">60</strong>
+								</div>
+								<div class="calc-input highlight">
+									<span id="averageCheckLabel">При среднем чеке 1 800 ₪</span>
+									<strong id="forecastRevenueValue">108 000</strong>
+								</div>
+							</div>
+							<div class="calculator-proof">
+								<strong>В 90% клиник неактивных пациентов 25-40%</strong>
+								<span id="formulaLine">1200 × 5% × ₪1800 = ₪108 000</span>
+							</div>
+							<div class="money-note">
+								<strong>Главная мысль:</strong>
+								<span>сначала проверяем деньги в текущей базе, а не увеличиваем расходы на рекламу.</span>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="beforeStage">
+						<div class="comparison-screen">
+							<div class="comparison-column bad">
+								<p class="eyebrow">Как часто сейчас</p>
+								<h2>Вы теряете пациентов каждый день</h2>
+								<ul>
+									<li>Вы теряете пациентов каждый день.</li>
+									<li>Вы платите за рекламу, пока база простаивает.</li>
+									<li>Врач продает вслепую.</li>
+									<li>После визита пациент уходит без следующего шага.</li>
+								</ul>
+							</div>
+							<div class="comparison-column good">
+								<p class="eyebrow">С LINDA OS</p>
+								<h2>Каждый пациент ведется по плану</h2>
+								<ul>
+									<li>Система сама уточняет цель, страхи и бюджет.</li>
+									<li>Пациент получает личную рекомендацию и время записи.</li>
+									<li>Врач заранее видит короткое досье.</li>
+									<li>После визита система возвращает пациента на следующий шаг.</li>
+								</ul>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="campaignStage">
+						<div class="campaign-screen">
+							<div class="screen-header">
+								<div>
+									<p class="eyebrow">Первые 50 пациентов</p>
+									<h2>Запуск возврата без тяжелого внедрения</h2>
+								</div>
+								<div class="launch-status">
+									<span class="status-pill">Запущено 2 часа назад</span>
+									<button class="primary-button compact" type="button">Запустить возврат</button>
+								</div>
+							</div>
+							<div class="live-delta-row">
+								<span class="live-delta">+1 ответ</span>
+								<span class="live-delta">+1 запись</span>
+							</div>
+							<div class="campaign-stats">
+								<div><strong>50</strong><span>выбрано из базы</span></div>
+								<div><strong>37</strong><span>сообщений подготовлено</span></div>
+								<div><strong>12</strong><span>нужно утвердить</span></div>
+								<div><strong>3</strong><span>уже записались</span></div>
+							</div>
+							<div class="patient-list">
+								<div><span>Марина, 42</span><strong>не была 8 месяцев</strong><em>готов ответ</em></div>
+								<div><span>Анна, 36</span><strong>интерес к коррекции</strong><em>запись</em></div>
+								<div><span>Ольга, 51</span><strong>после лазера</strong><em>нужен уход</em></div>
+								<div><span>Ирина, 44</span><strong>повторный ботокс</strong><em>через 2 недели</em></div>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="patientStage">
+						<div class="dialog-stage-layout">
+							<div class="dialog-proof">
+								<div class="dialog-proof-card weak">
+									<p class="eyebrow">Обычное сообщение</p>
+									<h3>Пациент игнорирует</h3>
+									<p>“Здравствуйте, отправляем прайс. Запишитесь, если актуально.”</p>
+								</div>
+								<div class="dialog-proof-card strong">
+									<p class="eyebrow">LINDA OS</p>
+									<h3>Пациент отвечает</h3>
+									<p>Сначала снимаем страх, потом предлагаем конкретное окно.</p>
+								</div>
+							</div>
+							<div class="phone-shell">
+								<div class="phone-header">
+									<div>
+									<strong>Переписка</strong>
+										<span>Анна, 36</span>
+									</div>
+									<span class="status-pill">LINDA активна</span>
+								</div>
+								<div class="chat-thread" id="chatThread" aria-live="polite"></div>
+								<div class="quick-replies" id="quickReplies"></div>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="planStage">
+						<div class="client-page">
+							<div class="client-hero">
+								<p class="eyebrow">Персональная страница</p>
+								<h2>Анна, вам подойдет мягкая коррекция без перегруза</h2>
+								<p>
+									Учитываем страх боли, желание натурального эффекта и средний+ бюджет. Врач получает уже
+									подготовленного клиента, а не холодный запрос.
+								</p>
+							</div>
+							<div class="recommendation-grid">
+								<article>
+									<span>01</span>
+									<h3>Консультация</h3>
+									<p>30 минут с врачом-косметологом, подтверждение показаний и плана.</p>
+								</article>
+								<article>
+									<span>02</span>
+									<h3>Мягкая коррекция</h3>
+									<p>Натуральный эффект, минимальный отек, контроль боли.</p>
+								</article>
+								<article>
+									<span>03</span>
+									<h3>Домашний уход</h3>
+									<p>Средства для восстановления в нужный момент, без случайного допродажа.</p>
+								</article>
+							</div>
+							<div class="slots">
+								<button class="slot-button selected" type="button">Пт, 12:30</button>
+								<button class="slot-button" type="button">Пт, 17:00</button>
+								<button class="slot-button" type="button">Вс, 11:00</button>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="doctorStage">
+						<div class="doctor-screen">
+							<div class="screen-header">
+								<div>
+									<p class="eyebrow">Экран врача</p>
+									<h2>Досье перед приемом</h2>
+								</div>
+								<span class="status-pill">5 минут до визита</span>
+							</div>
+							<div class="doctor-layout">
+								<div class="patient-summary">
+									<h3>Анна, 36</h3>
+									<dl>
+										<div>
+											<dt>Цель</dt>
+											<dd>Улучшить лицо без заметной искусственности</dd>
+										</div>
+										<div>
+											<dt>Страх</dt>
+											<dd>Боль, отеки, "утиные губы"</dd>
+										</div>
+										<div>
+											<dt>Бюджет</dt>
+											<dd>Средний+</dd>
+										</div>
+										<div>
+											<dt>Готовность</dt>
+											<dd>К курсу процедур на 12 месяцев</dd>
+										</div>
+									</dl>
+								</div>
+								<div class="sales-cues">
+									<h3>Подсказки врачу</h3>
+									<ul>
+										<li>Начать с безопасности и контроля боли.</li>
+										<li>Показать естественный результат через 2-3 недели.</li>
+										<li>Предложить годовой план, а не разовый укол.</li>
+									</ul>
+									<div class="doctor-script-grid">
+										<div>
+											<p class="eyebrow">Что НЕ говорить пациенту</p>
+											<p>“Вам надо сделать вот это, цена такая.”</p>
+										</div>
+										<div>
+											<p class="eyebrow">Что сказать, чтобы закрыть на план</p>
+											<p>“Начнем мягко, проверим реакцию и закрепим результат по плану на 12 месяцев.”</p>
+										</div>
+									</div>
+									<button class="primary-button compact" type="button">Утвердить план</button>
+								</div>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="followupStage">
+						<div class="followup-screen">
+							<div class="followup-kpis">
+								<div><strong>+32%</strong><span>повторных визитов</span></div>
+								<div><strong>+18%</strong><span>LTV пациента</span></div>
+								<div><strong>Риск</strong><span>без этого пациент уходит к конкуренту</span></div>
+							</div>
+							<div class="timeline">
+								<div class="timeline-item active">
+									<span>День 3</span>
+									<h3>Контроль восстановления</h3>
+									<p>LINDA спрашивает про отек, боль и самочувствие. При риске передает администратору.</p>
+								</div>
+								<div class="timeline-item">
+									<span>День 14</span>
+									<h3>Уход в нужный момент</h3>
+									<p>Пациент получает персональную рекомендацию, врач заранее ее утвердил.</p>
+								</div>
+								<div class="timeline-item">
+									<span>Месяц 3</span>
+									<h3>Повторная запись</h3>
+									<p>Система возвращает пациента, пока он не ушел к конкуренту.</p>
+								</div>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="ownerStage">
+						<div class="owner-screen">
+							<div class="screen-header">
+								<div>
+									<p class="eyebrow">Экран владельца</p>
+									<h2>Видно, где деньги и где нужен человек</h2>
+								</div>
+								<span class="status-pill">7 дней запуска</span>
+							</div>
+							<div class="owner-dashboard">
+								<div class="owner-card"><strong>50</strong><span>пациентов в запуске</span></div>
+								<div class="owner-card"><strong>18</strong><span>ответили</span></div>
+								<div class="owner-card"><strong>7</strong><span>записей</span></div>
+								<div class="owner-card"><strong id="ownerRevenueValue">31 500</strong><span id="ownerRevenueLabel">ожидаемый доход, ₪</span></div>
+							</div>
+							<div class="scale-note">
+								<strong>Это только 50 пациентов из 1200</strong>
+								<span>Если первые 50 дали записи, масштабируем запуск на всю неактивную базу.</span>
+								<button class="primary-button compact" type="button">Запустить на всей базе</button>
+							</div>
+							<div class="owner-queues">
+								<div>
+									<h3>Нужно утвердить</h3>
+									<p>12 сообщений, где лучше участие администратора или врача.</p>
+								</div>
+								<div>
+									<h3>Свободные окна</h3>
+									<p>Пятница 12:30, пятница 17:00, воскресенье 11:00.</p>
+								</div>
+								<div>
+									<h3>Следующий шаг</h3>
+									<p>Подключить еще 150 пациентов, если первые 50 дали записи.</p>
+								</div>
+							</div>
+						</div>
+					</section>
+
+					<section class="stage-panel" id="pilotStage">
+						<div class="pilot-screen">
+							<p class="eyebrow">Следующий шаг</p>
+							<h2>Следующий шаг для вашей клиники</h2>
+							<p>
+								Запуск можно начать с небольшого сегмента базы. Это позволяет увидеть ответы, записи и
+								экономику до масштабирования на всю клинику.
+							</p>
+							<div class="pilot-terms">
+								<div><strong>Старт с 50 пациентов</strong><span>берем небольшой сегмент неактивной базы</span></div>
+								<div><strong>Первые результаты за 7 дней</strong><span>смотрим ответы, записи и свободные окна</span></div>
+								<div><strong>Масштабирование после результата</strong><span>расширяем запуск только после подтвержденной экономики</span></div>
+							</div>
+							<button class="primary-button pilot-cta" type="button">Запустить пилот</button>
+						</div>
+					</section>
+				</section>
+
+				<aside class="right-pane" aria-label="Панель продаж">
+					<section class="insight-panel">
+						<div class="screen-header">
+							<div>
+								<p class="eyebrow">Как это работает</p>
+								<h2 id="insightTitle">Где деньги в базе</h2>
+							</div>
+							<div class="insight-badges">
+								<span class="status-pill presenter-only" id="insightCounter">1/9</span>
+							</div>
+						</div>
+						<div class="insight-sections">
+							<div>
+								<h3>Что происходит</h3>
+								<p id="insightWhat">Клиника видит, сколько денег можно вернуть из текущей базы.</p>
+							</div>
+							<div>
+								<h3>Что это даёт клинике</h3>
+								<p id="insightBenefit">Появляется прогноз выручки без роста рекламного бюджета.</p>
+							</div>
+							<div>
+								<h3>Почему это важно</h3>
+								<p id="insightWhy">Решение принимается по цифрам, а не по ощущениям.</p>
+							</div>
+						</div>
+						<div class="insight-progress" id="insightProgress"></div>
+						<div class="presenter-controls">
+							<button class="ghost-button compact" id="previousPresentationStep" type="button">Назад</button>
+							<button class="primary-button compact" id="togglePresentation" type="button">Играть</button>
+							<button class="ghost-button compact" id="nextPresentationStep" type="button">Дальше</button>
+						</div>
+					</section>
+
+					<section class="operator-panel">
+						<div class="screen-header">
+							<div>
+								<p class="eyebrow">Контроль и безопасность</p>
+								<h2>Клиника сохраняет контроль</h2>
+							</div>
+							<span class="status-dot">На связи</span>
+						</div>
+						<div class="control-list">
+							<label>
+								<input type="checkbox" checked />
+								<span>Человек может подключиться в любой момент</span>
+							</label>
+							<label>
+								<input type="checkbox" checked />
+								<span>Рекомендации можно утверждать перед отправкой</span>
+							</label>
+							<label>
+								<input type="checkbox" checked />
+								<span>Данные клиники изолированы</span>
+							</label>
+						</div>
+						<div class="approval-box">
+							<p class="eyebrow">Черновик ответа</p>
+							<p>
+								Анна, по вашим ответам лучше начать с консультации и мягкой коррекции. Есть окно в пятницу
+								в 12:30. Забронировать?
+							</p>
+							<button class="primary-button compact" type="button">Одобрить</button>
+						</div>
+					</section>
+
+					<section class="business-panel">
+						<p class="eyebrow">Что получает владелец</p>
+						<div class="business-list">
+							<div>
+								<strong>7 дней</strong>
+								<span>первые записи из текущей базы</span>
+							</div>
+							<div>
+								<strong>Меньше ручной работы</strong>
+								<span>администратор подключается только там, где нужен человек</span>
+							</div>
+							<div>
+								<strong>Без роста рекламы</strong>
+								<span>повторная выручка из уже собранной базы</span>
+							</div>
+						</div>
+					</section>
+				</aside>
+			</main>
+		</div>
+
+		<script src="./app.js"></script>
+	</body>
+</html>

@@ -173,6 +173,7 @@ function createLazyStream<TApi extends Api, TOptions extends StreamOptions, TSim
 
 		loadModule()
 			.then((module) => {
+				console.log(`[pi-ai] Lazy module loaded. Calling stream for api: ${model.api}`);
 				const inner = module.stream(model, context, options);
 				forwardStream(outer, inner);
 			})

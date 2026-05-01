@@ -5,6 +5,15 @@ export interface RequestOptions {
 	channel: string;
 }
 
+export interface ClientConversationMessage {
+	id: string;
+	direction: "inbound" | "outbound";
+	senderType?: string;
+	messageType?: string;
+	text?: string;
+	createdAt: string;
+}
+
 /**
  * Shared HTTP client for all psf-engine-v2 API calls.
  * Used by both LindaClientAgent and LindaAdminAgent.
@@ -113,6 +122,56 @@ export class ClinicBackendClient {
 
 		if (!response.ok) {
 			throw new Error(`[backend] patchProfile failed: ${response.status}`);
+		}
+		return await response.json();
+	}
+
+	public async listClientMessages(
+		clientId: string,
+		options: RequestOptions,
+		params: { limit?: number } = {},
+	): Promise<ClientConversationMessage[]> {
+		const url = new URL(`/api/clients/${encodeURIComponent(clientId)}/messages`, this.config.baseUrl);
+		url.searchParams.append("firmId", this.config.firmId);
+		if (params.limit) url.searchParams.append("limit", String(params.limit));
+
+		const response = await fetch(url.toString(), {
+			headers: this.buildHeaders(options),
+		});
+
+		if (!response.ok) {
+			throw new Error(`[backend] listMessages failed: ${response.status}`);
+		}
+		const data = (await response.json()) as { messages?: ClientConversationMessage[] };
+		return data.messages ?? [];
+	}
+
+	public async recordClientMessage(
+		clientId: string,
+		message: {
+			direction: "inbound" | "outbound";
+			senderType: "client" | "agent" | "admin" | "system";
+			messageType?: string;
+			text: string;
+		},
+		options: RequestOptions,
+	): Promise<unknown> {
+		const url = new URL(`/api/clients/${encodeURIComponent(clientId)}/messages`, this.config.baseUrl);
+		url.searchParams.append("firmId", this.config.firmId);
+
+		const response = await fetch(url.toString(), {
+			method: "POST",
+			headers: this.buildHeaders(options),
+			body: JSON.stringify({
+				...message,
+				agentRole: options.role,
+				channel: options.channel,
+			}),
+		});
+
+		if (!response.ok) {
+			const body = await response.text();
+			throw new Error(`[backend] recordMessage failed: ${response.status} — ${body}`);
 		}
 		return await response.json();
 	}

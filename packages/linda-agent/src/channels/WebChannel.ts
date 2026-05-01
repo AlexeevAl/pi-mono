@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage as NodeRequest, type ServerResponse } from "node:http";
 import type { LindaAdminAgent } from "../agents/LindaAdminAgent.js";
 import type { LindaClientAgent } from "../agents/LindaClientAgent.js";
-import type { AgentDecision, ClubAgentContext } from "../core/types.js";
+import { type ClientConversationMessage, ClinicBackendClient } from "../core/backend-client.js";
+import type { AgentDecision, BackendConfig, ClubAgentContext } from "../core/types.js";
 
 export interface WebChannelConfig {
 	port: number;
@@ -9,6 +10,7 @@ export interface WebChannelConfig {
 	allowedOrigins?: string;
 	firmName?: string;
 	defaultActorId?: string;
+	backend?: BackendConfig;
 }
 
 interface WebChatRequest {
@@ -24,6 +26,7 @@ interface WebChatResponse {
 
 export class WebChannel {
 	private server: ReturnType<typeof createServer> | null = null;
+	private readonly backend?: ClinicBackendClient;
 
 	constructor(
 		private readonly config: WebChannelConfig,
@@ -31,7 +34,9 @@ export class WebChannel {
 			clientAgent?: LindaClientAgent;
 			adminAgent?: LindaAdminAgent;
 		},
-	) {}
+	) {
+		this.backend = config.backend ? new ClinicBackendClient(config.backend) : undefined;
+	}
 
 	async start(): Promise<void> {
 		this.server = createServer((req, res) => {
@@ -85,6 +90,11 @@ export class WebChannel {
 			return;
 		}
 
+		if (req.method === "GET" && url.pathname === "/history") {
+			await this.handleHistory(url, res);
+			return;
+		}
+
 		if (req.method === "POST" && url.pathname === "/reset") {
 			this.json(res, 200, { ok: true, resetStrategy: "client_side_actor_rotation" });
 			return;
@@ -126,10 +136,25 @@ export class WebChannel {
 		}
 
 		const actorId = this.resolveActorId(body.actorId);
+		const clientId = this.resolvePersistedClientId(actorId, body.targetClientId);
 		const result =
 			this.config.role === "admin"
 				? await this.runAdmin(actorId, text, body.targetClientId)
 				: await this.runClient(actorId, text);
+		await this.recordWebMessage(clientId, {
+			direction: "inbound",
+			senderType: this.config.role === "admin" ? "admin" : "client",
+			messageType: "web_chat",
+			text,
+		});
+		if (result.reply) {
+			await this.recordWebMessage(clientId, {
+				direction: "outbound",
+				senderType: this.config.role === "admin" ? "admin" : "agent",
+				messageType: "web_chat_reply",
+				text: result.reply,
+			});
+		}
 
 		const response: WebChatResponse = {
 			replies: result.reply ? [{ text: result.reply }] : [],
@@ -137,6 +162,72 @@ export class WebChannel {
 		};
 
 		this.json(res, 200, response);
+	}
+
+	private async handleHistory(url: URL, res: ServerResponse): Promise<void> {
+		if (!this.backend) {
+			this.json(res, 200, { messages: [] });
+			return;
+		}
+		const actorId = this.resolveActorId(url.searchParams.get("actorId") ?? undefined);
+		const targetClientId = url.searchParams.get("targetClientId") ?? undefined;
+		const historyView = url.searchParams.get("view") ?? "chat";
+		if (this.config.role === "admin" && !targetClientId?.trim()) {
+			this.json(res, 200, { messages: [] });
+			return;
+		}
+		const clientId = this.resolvePersistedClientId(actorId, targetClientId);
+		let messages: ClientConversationMessage[];
+		try {
+			messages = await this.backend.listClientMessages(
+				clientId,
+				{
+					role: this.config.role === "admin" ? "admin_agent" : "client_agent",
+					channel: "web",
+				},
+				{ limit: 50 },
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message.includes("listMessages failed: 404")) {
+				this.json(res, 200, { clientId, messages: [] });
+				return;
+			}
+			throw error;
+		}
+		this.json(res, 200, { clientId, messages: this.filterHistoryForRole(messages, historyView) });
+	}
+
+	private filterHistoryForRole(messages: ClientConversationMessage[], view: string): ClientConversationMessage[] {
+		if (this.config.role === "admin") {
+			if (view === "patient") {
+				return messages.filter((message) => {
+					if (message.senderType === "system") {
+						return false;
+					}
+					if (message.senderType === "admin") {
+						return this.isClientVisibleAdminMessage(message.messageType);
+					}
+					return true;
+				});
+			}
+			return messages.filter(
+				(message) => message.senderType === "admin" && (message.messageType ?? "").startsWith("web_chat"),
+			);
+		}
+		return messages.filter((message) => {
+			if (message.senderType === "system") {
+				return false;
+			}
+			if (message.senderType === "admin") {
+				return this.isClientVisibleAdminMessage(message.messageType);
+			}
+			return true;
+		});
+	}
+
+	private isClientVisibleAdminMessage(messageType?: string): boolean {
+		return ["booking_approved", "manual_message", "delivery_retry"].includes(messageType ?? "");
 	}
 
 	private async runClient(actorId: string, text: string): Promise<AgentDecision> {
@@ -176,6 +267,43 @@ export class WebChannel {
 
 		const prefix = this.config.role === "admin" ? "admin_web_" : "user_web_";
 		return `${prefix}${Math.random().toString(36).slice(2, 10)}`;
+	}
+
+	private resolvePersistedClientId(actorId: string, targetClientId?: string): string {
+		if (this.config.role === "admin") {
+			return targetClientId?.trim().slice(0, 128) || actorId;
+		}
+		return actorId;
+	}
+
+	private async recordWebMessage(
+		clientId: string,
+		message: Pick<ClientConversationMessage, "direction" | "text"> & {
+			senderType: "client" | "agent" | "admin" | "system";
+			messageType: string;
+		},
+	): Promise<void> {
+		if (!this.backend || !message.text?.trim()) {
+			return;
+		}
+		try {
+			await this.backend.recordClientMessage(
+				clientId,
+				{
+					direction: message.direction,
+					senderType: message.senderType,
+					messageType: message.messageType,
+					text: message.text,
+				},
+				{
+					role: this.config.role === "admin" ? "admin_agent" : "client_agent",
+					channel: "web",
+				},
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.warn(`[Web] Message persistence skipped: ${message}`);
+		}
 	}
 
 	private json(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -321,6 +449,7 @@ function buildChatHtml(config: WebChannelConfig): string {
   .msg { max-width: 84%; display: flex; flex-direction: column; gap: 4px; }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.bot  { align-self: flex-start; align-items: flex-start; }
+  .msg.internal { align-self: center; align-items: stretch; max-width: 92%; width: 92%; }
   .bubble {
     padding: 10px 16px;
     border-radius: 18px;
@@ -342,6 +471,22 @@ function buildChatHtml(config: WebChannelConfig): string {
     background: var(--bot-bubble);
     border: 1px solid var(--line);
     border-bottom-left-radius: 4px;
+  }
+  .msg.internal .bubble {
+    background: rgba(109,98,86,0.08);
+    border: 1px dashed rgba(109,98,86,0.38);
+    color: var(--muted);
+    border-radius: 10px;
+    font-size: 0.86rem;
+  }
+  .msg.internal .bubble::before {
+    content: "internal admin";
+    display: block;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    color: rgba(109,98,86,0.78);
   }
   .typing {
     align-self: flex-start;
@@ -422,6 +567,78 @@ function buildChatHtml(config: WebChannelConfig): string {
     font-size: 0.84rem;
     padding: 0 16px 12px;
   }
+  .patientPanel {
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: rgba(255,251,244,0.66);
+    padding: 12px 16px;
+  }
+  .patientPanel[hidden] { display: none; }
+  .patientPanelHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .patientPanel.isCollapsed .patientPanelHeader {
+    margin-bottom: 0;
+  }
+  .patientPanelTitle {
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .patientHistoryBtn {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.7);
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+    padding: 6px 12px;
+  }
+  .patientPanelActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .patientMessages {
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .patientMsg {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.64);
+    padding: 8px 10px;
+  }
+  .patientMsgMeta {
+    color: var(--muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 3px;
+  }
+  .patientMsgText {
+    font-size: 0.88rem;
+    line-height: 1.42;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .patientPanelEmpty {
+    color: var(--muted);
+    font-size: 0.84rem;
+  }
+  .patientPanel.isCollapsed .patientMessages {
+    display: none;
+  }
   @media (max-width: 640px) {
     .toolbar { grid-template-columns: 1fr; }
     .header { align-items: flex-start; flex-direction: column; }
@@ -450,6 +667,18 @@ function buildChatHtml(config: WebChannelConfig): string {
       <input id="targetClientId" placeholder="user_web_abc12345" />
     </label>
   </div>
+  <div class="patientPanel" id="patientPanel" ${role === "admin" ? "" : "hidden"}>
+    <div class="patientPanelHeader">
+      <div class="patientPanelTitle">История пациента</div>
+      <div class="patientPanelActions">
+        <button class="patientHistoryBtn" type="button" onclick="togglePatientHistory()" id="patientToggleBtn">Свернуть</button>
+        <button class="patientHistoryBtn" type="button" onclick="loadPatientHistory()">Обновить</button>
+      </div>
+    </div>
+    <div class="patientMessages" id="patientMessages">
+      <div class="patientPanelEmpty">Выберите Target Client ID, чтобы посмотреть историю пациента.</div>
+    </div>
+  </div>
   <div class="messages" id="messages"></div>
   <div id="errorLine" class="errorLine" hidden></div>
   <div class="inputRow">
@@ -466,6 +695,7 @@ function buildChatHtml(config: WebChannelConfig): string {
 const ROLE = ${JSON.stringify(role)};
 const DEFAULT_ACTOR_ID = ${JSON.stringify(defaultActorId)};
 const STORAGE_KEY = ROLE === 'admin' ? 'linda:web:admin:id' : 'linda:web:client:id';
+const PATIENT_HISTORY_COLLAPSED_KEY = 'linda:web:admin:patient-history:collapsed';
 let loading = false;
 
 function generateActorId() {
@@ -535,6 +765,158 @@ function addMsg(role, text) {
 
   msgs.appendChild(wrap);
   scrollDown();
+}
+
+function clearMessages() {
+  document.getElementById('messages').innerHTML = '';
+}
+
+function clearPatientHistory(message) {
+  const el = document.getElementById('patientMessages');
+  if (!el) return;
+  el.innerHTML = '';
+  if (message) {
+    const empty = document.createElement('div');
+    empty.className = 'patientPanelEmpty';
+    empty.textContent = message;
+    el.appendChild(empty);
+  }
+}
+
+function isPatientHistoryCollapsed() {
+  return localStorage.getItem(PATIENT_HISTORY_COLLAPSED_KEY) === 'true';
+}
+
+function applyPatientHistoryCollapsedState() {
+  const panel = document.getElementById('patientPanel');
+  const button = document.getElementById('patientToggleBtn');
+  if (!panel || !button) return;
+  const collapsed = isPatientHistoryCollapsed();
+  panel.classList.toggle('isCollapsed', collapsed);
+  button.textContent = collapsed ? 'Показать' : 'Свернуть';
+}
+
+function togglePatientHistory() {
+  localStorage.setItem(PATIENT_HISTORY_COLLAPSED_KEY, String(!isPatientHistoryCollapsed()));
+  applyPatientHistoryCollapsedState();
+}
+
+function addPatientMsg(message) {
+  const el = document.getElementById('patientMessages');
+  if (!el || !message || typeof message.text !== 'string' || !message.text.trim()) return;
+  const item = document.createElement('div');
+  item.className = 'patientMsg';
+  const meta = document.createElement('div');
+  meta.className = 'patientMsgMeta';
+  meta.textContent = formatPatientMeta(message);
+  const text = document.createElement('div');
+  text.className = 'patientMsgText';
+  text.textContent = message.text;
+  item.appendChild(meta);
+  item.appendChild(text);
+  el.appendChild(item);
+}
+
+function formatPatientMeta(message) {
+  const senderType = typeof message.senderType === 'string' ? message.senderType : 'message';
+  const messageType = typeof message.messageType === 'string' ? message.messageType : '';
+  if (senderType === 'client') return 'client';
+  if (senderType === 'agent') return 'agent';
+  if (senderType === 'admin' && messageType === 'booking_approved') return 'admin notification';
+  if (senderType === 'admin') return 'admin';
+  return senderType;
+}
+
+function renderPatientHistory(messages) {
+  clearPatientHistory('');
+  if (!Array.isArray(messages) || messages.length === 0) {
+    clearPatientHistory('История пациента пустая.');
+    return;
+  }
+  let rendered = 0;
+  for (const message of messages) {
+    if (!message || typeof message.text !== 'string' || !message.text.trim()) continue;
+    const senderType = typeof message.senderType === 'string' ? message.senderType : '';
+    const messageType = typeof message.messageType === 'string' ? message.messageType : '';
+    if (senderType === 'system') continue;
+    if (senderType === 'admin' && !['booking_approved', 'manual_message', 'delivery_retry'].includes(messageType)) continue;
+    addPatientMsg(message);
+    rendered += 1;
+  }
+  if (rendered === 0) {
+    clearPatientHistory('История пациента пустая.');
+  }
+}
+
+function renderHistory(messages) {
+  clearMessages();
+  if (!Array.isArray(messages)) return;
+  for (const message of messages) {
+    if (!message || typeof message.text !== 'string' || !message.text.trim()) continue;
+    const senderType = typeof message.senderType === 'string' ? message.senderType : '';
+    const messageType = typeof message.messageType === 'string' ? message.messageType : '';
+    if (senderType === 'system') continue;
+    if (ROLE === 'client' && senderType === 'admin' && !['booking_approved', 'manual_message', 'delivery_retry'].includes(messageType)) continue;
+    const role = ROLE === 'admin' && senderType === 'admin' && messageType.startsWith('web_chat')
+      ? 'internal'
+      : message.direction === 'inbound' && (senderType === 'client' || senderType === 'admin') ? 'user' : 'bot';
+    addMsg(role, message.text);
+  }
+}
+
+async function loadHistory() {
+  const actorId = getActorId();
+  if (!actorId) return;
+  const params = new URLSearchParams({ actorId });
+  if (ROLE === 'admin') {
+    const targetClientId = document.getElementById('targetClientId').value.trim();
+    if (!targetClientId) {
+      clearMessages();
+      clearPatientHistory('Выберите Target Client ID, чтобы посмотреть историю пациента.');
+      setError('');
+      return;
+    }
+    if (targetClientId) params.set('targetClientId', targetClientId);
+  }
+
+  try {
+    const res = await fetch('/history?' + params.toString());
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.message || data.error || 'Не удалось загрузить историю.');
+      return;
+    }
+    renderHistory(data.messages);
+    if (ROLE === 'admin') {
+      loadPatientHistory();
+    }
+  } catch (error) {
+    setError('Не удалось загрузить историю.');
+    console.error(error);
+  }
+}
+
+async function loadPatientHistory() {
+  if (ROLE !== 'admin') return;
+  const actorId = getActorId();
+  const targetClientId = document.getElementById('targetClientId').value.trim();
+  if (!targetClientId) {
+    clearPatientHistory('Выберите Target Client ID, чтобы посмотреть историю пациента.');
+    return;
+  }
+  const params = new URLSearchParams({ actorId, targetClientId, view: 'patient' });
+  try {
+    const res = await fetch('/history?' + params.toString());
+    const data = await res.json();
+    if (!res.ok) {
+      clearPatientHistory(data.message || data.error || 'Не удалось загрузить историю пациента.');
+      return;
+    }
+    renderPatientHistory(data.messages);
+  } catch (error) {
+    clearPatientHistory('Не удалось загрузить историю пациента.');
+    console.error(error);
+  }
 }
 
 function showTyping() {
@@ -612,7 +994,7 @@ async function sendMessage() {
 }
 
 function resetChat() {
-  document.getElementById('messages').innerHTML = '';
+  clearMessages();
   setError('');
   if (!DEFAULT_ACTOR_ID) {
     setActorId(generateActorId());
@@ -620,9 +1002,15 @@ function resetChat() {
 }
 
 ensureActorId();
+applyPatientHistoryCollapsedState();
 document.getElementById('actorId').addEventListener('change', (event) => {
   setActorId(event.target.value.trim() || generateActorId());
+  loadHistory();
 });
+document.getElementById('targetClientId')?.addEventListener('change', () => {
+  loadHistory();
+});
+loadHistory();
 document.getElementById('input').focus();
 </script>
 </body>

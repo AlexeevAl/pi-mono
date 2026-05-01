@@ -179,6 +179,7 @@ async function main(): Promise<void> {
 						allowedOrigins,
 						firmName,
 						defaultActorId,
+						backend: config.backend,
 					},
 					{
 						clientAgent,

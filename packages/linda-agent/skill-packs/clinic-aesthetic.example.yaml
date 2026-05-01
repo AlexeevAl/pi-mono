@@ -1,0 +1,402 @@
+# Example Firm Skill Pack for an aesthetic clinic.
+#
+# This file is a product/runtime contract, not a free-form prompt.
+# The control engine owns routing and policy decisions. Agent skills execute
+# the selected step using this firm context, style, rules, and output schemas.
+
+schemaVersion: 0.1.0
+kind: FirmSkillPack
+id: clinic-aesthetic-premium-example
+displayName: Premium Aesthetic Clinic Skill Pack
+status: draft
+
+agentRentalUnit:
+  clientAgentRole: client_agent
+  adminAgentRole: admin_agent
+  controlEngine: psf-engine-v2
+  runtimePackage: "@psf/linda-agent"
+  tenantModel:
+    mode: single_firm_per_agent_process
+    requiredRuntimeEnv:
+      - FIRM_ID
+      - EDGE_ID
+      - FIRM_SHARED_SECRET
+      - WHATSAPP_AUTH_DIR
+
+firmProfile:
+  firmType: aesthetic_clinic
+  publicName: "Example Premium Clinic"
+  locales:
+    default: ru
+    supported:
+      - ru
+      - he
+      - en
+  serviceCatalog:
+    source: backend
+    rules:
+      - Do not invent services that are not present in the backend catalog.
+      - Do not present a service as medically suitable without doctor review.
+      - If a requested service is missing, offer administrator handoff.
+  staffDirectory:
+    source: backend
+    rules:
+      - Do not promise a specific doctor unless the backend marks them available.
+      - If the client asks for a named doctor and availability is unknown, create a handoff.
+  pricing:
+    source: backend
+    visibility: contextual_only
+    rules:
+      - Do not quote final prices without procedure context and clinic approval.
+      - If the client asks for an exact price, explain that the administrator can confirm it after a short clarification.
+  scheduling:
+    source: backend
+    rules:
+      - Do not confirm an appointment without an explicit available slot from the backend.
+      - Do not ask for sensitive medical details in the open chat.
+  crmFields:
+    lead:
+      required:
+        - fullName
+        - phone
+        - preferredLanguage
+        - requestedServiceOrProblem
+      optional:
+        - painFear
+        - previousProcedures
+        - budgetSensitivity
+        - urgency
+        - preferredVisitWindow
+        - marketingSource
+    handoff:
+      required:
+        - sessionId
+        - leadTemperature
+        - summary
+        - missingInformation
+        - recommendedNextAction
+        - operatorNotes
+
+globalPolicy:
+  allowedActions:
+    - ask_clarifying_question
+    - summarize_client_need
+    - recommend_next_safe_step
+    - offer_consultation
+    - create_handoff_packet
+    - notify_admin_agent
+    - update_lead_fields
+  forbiddenActions:
+    - diagnose_medical_condition
+    - promise_medical_result
+    - prescribe_treatment
+    - guarantee_price
+    - confirm_booking_without_backend_slot
+    - pressure_client_to_buy
+    - collect_highly_sensitive_medical_data_in_chat
+  requiredApprovals:
+    bookingConfirmation:
+      requiredWhen:
+        - backendSlotIsMissing
+        - requestedProcedureRequiresDoctorReview
+        - clientIsAngryOrDistrustful
+    approver: admin_agent_or_human_operator
+  safetyEscalation:
+    handoffRequiredWhen:
+      - clientRequestsHuman
+      - clientMentionsMedicalEmergency
+      - clientReportsSeverePainOrComplication
+      - clientAsksForDiagnosis
+      - clientAsksForGuaranteedResult
+      - clientIsHostileOrLegallyThreatening
+      - requiredDataIsMissingAfterTwoAttempts
+  logging:
+    logSkillStart: true
+    logSkillEnd: true
+    logPolicyBlocks: true
+    logHandoffReason: true
+    redact:
+      - paymentCardData
+      - governmentId
+      - medicalDocuments
+
+communicationStyle:
+  externalClientStyle:
+    tone: warm_professional_premium_care
+    languageRules:
+      - Reply in the client's language when possible.
+      - Prefer Russian for mixed Russian/Hebrew conversations unless the client switches.
+    messageShape:
+      - Keep messages short.
+      - Ask one main question at a time.
+      - Start with care, then move to clarification.
+      - Do not sound like a generic support bot.
+    allowedPhrases:
+      - "Понимаю."
+      - "Давайте аккуратно уточним пару вещей."
+      - "Лучше передам это администратору, чтобы не гадать."
+    forbiddenPhrases:
+      - "Гарантируем результат"
+      - "Это точно вам подходит"
+      - "Цена точно будет"
+      - "Вам обязательно нужно"
+  internalOperatorStyle:
+    tone: concise_clinical_business
+    rules:
+      - State the client's intent plainly.
+      - Separate facts from inference.
+      - Call out missing data.
+      - Give the operator one recommended next action.
+      - Flag risks without drama.
+
+operatorNotesSchema:
+  type: object
+  required:
+    - leadTemperature
+    - clientIntent
+    - knownFacts
+    - missingInformation
+    - risks
+    - recommendedNextAction
+    - suggestedOperatorMessage
+  properties:
+    leadTemperature:
+      type: string
+      enum:
+        - cold
+        - warm
+        - hot
+        - risky
+    clientIntent:
+      type: string
+      description: Short description of what the client wants.
+    knownFacts:
+      type: array
+      items:
+        type: string
+    missingInformation:
+      type: array
+      items:
+        type: string
+    risks:
+      type: array
+      items:
+        type: string
+    recommendedNextAction:
+      type: string
+      enum:
+        - ask_one_more_question
+        - offer_consultation
+        - call_client
+        - doctor_review
+        - price_confirmation
+        - do_not_continue_automatically
+    suggestedOperatorMessage:
+      type: string
+
+enabledSkills:
+  - id: problem_discovery
+    type: client_execution_skill
+    purpose: Understand the client's need before recommendation or booking.
+    triggerConditions:
+      - activeSkill from control engine is problem_discovery.
+      - Client intent is vague or medically sensitive.
+    requiredInputs:
+      - sessionId
+      - conversationSummary
+      - knownLeadFields
+      - missingLeadFields
+    outputs:
+      - updatedLeadFields
+      - nextQuestion
+      - handoffRecommendation
+    allowedActions:
+      - ask_clarifying_question
+      - summarize_client_need
+      - update_lead_fields
+    forbiddenActions:
+      - recommend_procedure_as_medically_suitable
+      - diagnose_medical_condition
+      - ask_for_sensitive_medical_documents
+    fallbackBehavior:
+      whenDataIsInsufficient: ask_one_short_question
+      afterRepeatedMissingData: create_handoff_packet
+
+  - id: profile_enrichment
+    type: client_execution_skill
+    purpose: Collect missing lead/profile fields needed for safe personalization.
+    triggerConditions:
+      - activeSkill from control engine is profile_enrichment.
+      - skillContext contains missingFields or enrichmentLink.
+    requiredInputs:
+      - sessionId
+      - missingFields
+      - questions
+    optionalInputs:
+      - enrichmentLink
+    outputs:
+      - collectedFields
+      - unansweredFields
+      - nextBestAction
+    allowedActions:
+      - ask_clarifying_question
+      - send_enrichment_link
+      - update_lead_fields
+    forbiddenActions:
+      - invent_enrichment_link
+      - continue_recommendation_without_required_fields
+    fallbackBehavior:
+      whenClientAvoidsQuestions: explain_why_one_field_matters
+      afterTwoAvoidedAttempts: create_handoff_packet
+
+  - id: service_recommendation
+    type: client_execution_skill
+    purpose: Suggest safe clinic next steps based on profile and backend catalog.
+    triggerConditions:
+      - activeSkill from control engine is service_recommendation.
+      - required profile fields are present.
+      - backend service catalog is available.
+    requiredInputs:
+      - sessionId
+      - serviceCatalog
+      - leadProfile
+      - conversationSummary
+    outputs:
+      - recommendationSummary
+      - recommendedServiceIds
+      - confidence
+      - requiredDisclaimers
+    allowedActions:
+      - recommend_next_safe_step
+      - offer_consultation
+      - summarize_client_need
+    forbiddenActions:
+      - invent_service
+      - guarantee_outcome
+      - recommend_treatment_for_contraindication
+    fallbackBehavior:
+      whenCatalogMissing: create_handoff_packet
+      whenContraindicationPossible: doctor_review
+
+  - id: booking_consultation
+    type: client_execution_skill
+    purpose: Convert clear interest into a consultation or administrator-assisted booking.
+    triggerConditions:
+      - activeSkill from control engine is booking_consultation.
+      - Client has explicit booking or consultation intent.
+    requiredInputs:
+      - sessionId
+      - requestedServiceOrProblem
+      - availableSlots
+    outputs:
+      - selectedSlot
+      - bookingIntent
+      - adminApprovalRequired
+      - clientConfirmationText
+    allowedActions:
+      - offer_available_slots
+      - ask_preferred_visit_window
+      - request_admin_approval
+    forbiddenActions:
+      - confirm_booking_without_backend_slot
+      - collect_payment_in_chat
+      - claim_doctor_approval
+    fallbackBehavior:
+      whenSlotsMissing: create_handoff_packet
+      whenClientIsUnsure: offer_consultation
+
+  - id: handoff_packet
+    type: cross_role_contract
+    purpose: Produce structured context for the admin agent or human operator.
+    triggerConditions:
+      - control engine sets humanHandoff to true.
+      - Any skill hits a policy block or repeated missing-data fallback.
+    requiredInputs:
+      - sessionId
+      - conversationSummary
+      - knownLeadFields
+      - missingLeadFields
+      - policyFlags
+    outputs:
+      - handoffPacket
+      - operatorNotes
+      - recommendedNextAction
+    allowedActions:
+      - create_handoff_packet
+      - notify_admin_agent
+    forbiddenActions:
+      - hide_policy_risk_from_operator
+      - present_inference_as_fact
+    fallbackBehavior:
+      whenSummaryIsWeak: include_raw_last_messages
+
+  - id: firm_tone
+    type: style_skill
+    purpose: Apply the clinic's external and internal communication style.
+    triggerConditions:
+      - Always active as a style overlay.
+    requiredInputs:
+      - targetAudience
+      - locale
+      - draftMessage
+    outputs:
+      - styledMessage
+    allowedActions:
+      - rewrite_for_tone
+      - shorten_message
+      - remove_pressure
+    forbiddenActions:
+      - change_facts
+      - remove_required_disclaimer
+      - soften_policy_warning_for_operator
+
+handoffPacketSchema:
+  type: object
+  required:
+    - sessionId
+    - clientVisibleSummary
+    - operatorNotes
+    - leadFields
+    - policyFlags
+    - recommendedNextAction
+  properties:
+    sessionId:
+      type: string
+    clientVisibleSummary:
+      type: string
+      description: Safe summary that can be shown or repeated to the client.
+    operatorNotes:
+      $ref: "#/operatorNotesSchema"
+    leadFields:
+      type: object
+    policyFlags:
+      type: array
+      items:
+        type: string
+    recommendedNextAction:
+      type: string
+
+exampleOperatorNote:
+  leadTemperature: hot
+  clientIntent: "Клиент интересуется ботоксом, раньше процедуру не делал."
+  knownFacts:
+    - "Боится боли."
+    - "Хочет понять примерный процесс перед записью."
+    - "Цена важна, но не единственный фактор."
+  missingInformation:
+    - "Возраст."
+    - "Были ли противопоказания или недавние процедуры."
+    - "Удобное время для консультации."
+  risks:
+    - "Клиент может ожидать точную цену до консультации."
+    - "Нельзя обещать результат или медицинскую пригодность процедуры."
+  recommendedNextAction: offer_consultation
+  suggestedOperatorMessage: "Предложить короткую консультацию, спокойно объяснить процесс и отдельно сказать, что точную цену и пригодность процедуры подтверждает специалист."
+
+acceptanceCriteria:
+  - A skill never selects the global route by itself.
+  - Every client-facing response respects externalClientStyle and globalPolicy.
+  - Every handoff includes operatorNotes in the declared schema.
+  - Every policy block is logged with the triggering skill and reason.
+  - Missing backend catalog, prices, staff, or slots causes handoff instead of invention.
+  - Medical diagnosis, guaranteed result, and confirmed booking without backend slot are blocked.

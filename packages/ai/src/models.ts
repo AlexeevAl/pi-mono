@@ -22,7 +22,8 @@ export function getModel<TProvider extends KnownProvider, TModelId extends keyof
 	modelId: TModelId,
 ): Model<ModelApi<TProvider, TModelId>> {
 	const providerModels = modelRegistry.get(provider);
-	return providerModels?.get(modelId as string) as Model<ModelApi<TProvider, TModelId>>;
+	const model = providerModels?.get(modelId as string) as Model<ModelApi<TProvider, TModelId>>;
+	return model;
 }
 
 export function getProviders(): KnownProvider[] {

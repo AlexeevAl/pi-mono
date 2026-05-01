@@ -47,6 +47,17 @@ export class LindaClientAgent {
 		}
 		console.log(`[Agent] Context received. Active skill: ${context.activeSkill}`);
 
+		if (this.isApprovalStatusQuestion(input.text)) {
+			const profileResponse = await this.backend.getClientProfile(input.clientId, reqOptions);
+			const approval = this.resolveApprovedAppointmentStatus(profileResponse);
+			if (approval) {
+				return {
+					reply: this.buildAppointmentApprovedReply(approval),
+					context,
+				};
+			}
+		}
+
 		const bookingConfirmation = this.resolveBookingConfirmation(input.text);
 		if (bookingConfirmation) {
 			console.log(`[Agent] Booking confirmation detected for client: ${input.clientId}`);
@@ -157,7 +168,8 @@ ${context.nextBestAction ? `- **Suggested Next Action**: ${context.nextBestActio
 			normalized.includes("запишите") ||
 			normalized.includes("записаться");
 		const hasSlot =
-			/\b\d{1,2}[:.]\d{2}\b/.test(normalized) || normalized.includes("вторник") || normalized.includes("четверг");
+			/\b\d{1,2}[:.]\d{2}\b/.test(normalized) ||
+			/(понедельник|вторник|сред[ау]|четверг|пятниц[ау]|суббот[ау]|воскресенье)/i.test(normalized);
 		if (!hasBookingIntent || !hasSlot) {
 			return undefined;
 		}
@@ -207,8 +219,9 @@ ${context.nextBestAction ? `- **Suggested Next Action**: ${context.nextBestActio
 		const timeMatch = /\b(\d{1,2}[:.]\d{2})\b/.exec(text);
 		const day = dayMatch?.[1]?.toLowerCase();
 		const time = timeMatch?.[1]?.replace(".", ":");
-		if (day && time) return `${day} ${time}`;
-		return time ?? day;
+		const displayDay = day ? this.normalizeAppointmentDay(day) : undefined;
+		if (displayDay && time) return `${displayDay} ${time}`;
+		return time ?? displayDay;
 	}
 
 	private buildBookingConfirmationReply(input: { fullName?: string; phone?: string; appointmentWindow?: string }) {
@@ -218,5 +231,84 @@ ${context.nextBestAction ? `- **Suggested Next Action**: ${context.nextBestActio
 		return `Готово${nameLine}: я зафиксировала запрос на запись на ${slot} в центральной локации.${contact}
 
 До визита подготовьте список домашнего ухода, даты недавних процедур/пилингов и не используйте ретинол, кислоты или агрессивные скрабы за день до консультации. Администратор/врач увидит ваш профиль: чувствительная кожа, цель — мягкое улучшение тона и снижение покраснений, старт — консультация плюс одна щадящая процедура.`;
+	}
+
+	private isApprovalStatusQuestion(text: string) {
+		const normalized = text.trim().toLowerCase();
+		const asksStatus =
+			normalized.includes("статус") ||
+			normalized.includes("подтвержд") ||
+			normalized.includes("утвержд") ||
+			normalized.includes("просмотр");
+		const aboutBooking = normalized.includes("запис") || normalized.includes("визит") || normalized.includes("прием");
+		return asksStatus && aboutBooking;
+	}
+
+	private resolveApprovedAppointmentStatus(profileResponse: unknown) {
+		const root = this.asRecord(profileResponse);
+		const profile = this.asRecord(root.profile);
+		const client = this.asRecord(root.client);
+		const activeStatus = this.stringValue(profile.activeStatus);
+		const nextStep = this.stringValue(profile.nextStep);
+		const doctorRecommendation = this.stringValue(profile.doctorRecommendation);
+		const doctorId = this.stringValue(client.assignedDoctorId);
+		if (activeStatus !== "appointment_approved" && !nextStep?.startsWith("appointment_approved")) {
+			return undefined;
+		}
+
+		const appointmentWindow = nextStep?.startsWith("appointment_approved:")
+			? nextStep.slice("appointment_approved:".length).trim()
+			: undefined;
+		return {
+			appointmentWindow,
+			doctorId,
+			doctorRecommendation,
+		};
+	}
+
+	private buildAppointmentApprovedReply(input: {
+		appointmentWindow?: string;
+		doctorId?: string;
+		doctorRecommendation?: string;
+	}) {
+		const slot = input.appointmentWindow ? ` на ${this.formatAppointmentWindow(input.appointmentWindow)}` : "";
+		const doctor = input.doctorId ? ` Врач: ${input.doctorId}.` : "";
+		const recommendation =
+			input.doctorRecommendation && !/просмотрена|утверждена|подтверждена/i.test(input.doctorRecommendation)
+				? ` ${input.doctorRecommendation}`
+				: "";
+		return `Да, ваша запись${slot} просмотрена администратором и утверждена.${doctor}${recommendation}`;
+	}
+
+	private formatAppointmentWindow(value: string) {
+		return value.replace(
+			/^(понедельник|вторник|среда|среду|четверг|пятница|пятницу|суббота|субботу|воскресенье)(?=\s|$)/i,
+			(day) => this.normalizeAppointmentDay(day),
+		);
+	}
+
+	private normalizeAppointmentDay(day: string) {
+		const normalized = day.toLowerCase();
+		const byDay: Record<string, string> = {
+			понедельник: "понедельник",
+			вторник: "вторник",
+			среда: "среду",
+			среду: "среду",
+			четверг: "четверг",
+			пятница: "пятницу",
+			пятницу: "пятницу",
+			суббота: "субботу",
+			субботу: "субботу",
+			воскресенье: "воскресенье",
+		};
+		return byDay[normalized] ?? normalized;
+	}
+
+	private asRecord(value: unknown) {
+		return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	}
+
+	private stringValue(value: unknown) {
+		return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 	}
 }
