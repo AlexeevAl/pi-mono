@@ -2,6 +2,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import type { ClinicBackendClient, RequestOptions } from "../core/backend-client.js";
 import type { ControlBackendClient } from "../core/control-client.js";
+import { approveAdminAction, blockedToolResult } from "../effects/admin-action-guard.js";
 
 interface AdminToolsOptions {
 	control?: ControlBackendClient;
@@ -329,62 +330,4 @@ export function createAdminTools(
 			},
 		},
 	];
-}
-
-async function approveAdminAction(
-	toolOptions: AdminToolsOptions,
-	options: RequestOptions,
-	action: {
-		actionId: string;
-		sessionId?: string;
-		reason: string;
-		payload: Record<string, unknown>;
-		adminMessage?: string;
-	},
-): Promise<{ allowed: true; payload: Record<string, unknown> } | { allowed: false; blockedReason?: string }> {
-	if (!toolOptions.control || !toolOptions.auditEventId || !toolOptions.agentId) {
-		return { allowed: false, blockedReason: "control_guard_not_configured" };
-	}
-	const sessionId = action.sessionId?.trim();
-	if (!sessionId) {
-		return { allowed: false, blockedReason: "missing_session_id" };
-	}
-	const result = await toolOptions.control.postcheckTurn(
-		{
-			auditEventId: toolOptions.auditEventId,
-			sessionId,
-			agentId: toolOptions.agentId,
-			skillId: "admin_assistant",
-			adminMessage: action.adminMessage,
-			proposedActions: [
-				{
-					actionId: action.actionId,
-					reason: action.reason,
-					payload: action.payload,
-				},
-			],
-			extractedFields: {},
-			confidence: 0.9,
-		},
-		options,
-	);
-	const approved = result.executableActions.find((item) => item.actionId === action.actionId);
-	if (!result.allowed || !approved) {
-		return { allowed: false, blockedReason: result.blockedReason ?? "action_not_approved" };
-	}
-	return { allowed: true, payload: approved.payload };
-}
-
-function blockedToolResult(blockedReason?: string) {
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text: blockedReason
-					? `Action blocked by control guard: ${blockedReason}`
-					: "Action blocked by control guard.",
-			},
-		],
-		details: null,
-	};
 }

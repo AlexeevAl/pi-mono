@@ -1,7 +1,6 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
 import { createAgent, extractTextContent } from "../core/base-agent.js";
 import { ControlBackendClient } from "../core/control-client.js";
-import type { ActionExecution } from "../core/control-types.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type {
 	AgentDecision,
@@ -10,6 +9,7 @@ import type {
 	ClubAgentContext,
 	LindaRuntimeConfig,
 } from "../core/types.js";
+import { canExecuteApprovedClientActions, executeApprovedClientActions } from "../effects/client-action-executor.js";
 import { onToolExecutionEnd, onToolExecutionStart } from "../policies/shared-hooks.js";
 import { resolveClientSkillProposal } from "../skills/client-skill-proposals.js";
 import { createClientTools } from "../tools/client-tools.js";
@@ -102,7 +102,10 @@ export class LindaClientAgent {
 			const postcheck = await this.control.postcheckTurn(selectedSkillProposal.proposal, reqOptions);
 			if (
 				!postcheck.allowed ||
-				!this.allProposedActionsApproved(selectedSkillProposal.proposal, postcheck.executableActions)
+				!canExecuteApprovedClientActions({
+					proposedActions: selectedSkillProposal.proposal.proposedActions,
+					executableActions: postcheck.executableActions,
+				})
 			) {
 				return {
 					reply:
@@ -112,7 +115,12 @@ export class LindaClientAgent {
 				};
 			}
 
-			await this.executeApprovedClientActions(input.clientId, postcheck.executableActions, reqOptions);
+			await executeApprovedClientActions({
+				backend: this.backend,
+				clientId: input.clientId,
+				actions: postcheck.executableActions,
+				options: reqOptions,
+			});
 			const updatedContext = await this.backend.getAgentContext(input.clientId, reqOptions);
 			return {
 				reply: postcheck.finalClientMessage ?? selectedSkillProposal.reply,
@@ -204,27 +212,6 @@ export class LindaClientAgent {
 			input.reqOptions,
 		);
 		return postcheck.finalClientMessage ?? input.reply;
-	}
-
-	private allProposedActionsApproved(
-		proposal: { proposedActions: Array<{ actionId: string }> },
-		executableActions: ActionExecution[],
-	) {
-		return proposal.proposedActions.every((proposedAction) =>
-			executableActions.some((executableAction) => executableAction.actionId === proposedAction.actionId),
-		);
-	}
-
-	private async executeApprovedClientActions(
-		clientId: string,
-		actions: ActionExecution[],
-		reqOptions: { role: "client_agent"; channel: "whatsapp" | "web" },
-	) {
-		for (const action of actions) {
-			if (action.actionId === "update_lead_fields") {
-				await this.backend.patchClientProfile(clientId, action.payload, reqOptions);
-			}
-		}
 	}
 
 	private applyControlDecision(
