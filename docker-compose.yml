@@ -1,0 +1,44 @@
+version: '3.8'
+
+# common-config for all agents to avoid repetition
+x-linda-base: &linda-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: always
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "50m"
+
+services:
+  # ---------------------------------------------------------
+  # FIRM: Alpha Clinic
+  # ---------------------------------------------------------
+  linda-alpha:
+    <<: *linda-base
+    container_name: linda-alpha
+    volumes:
+      # WhatsApp session persistence
+      - ./firms/alpha/wa-auth:/app/packages/linda-agent/data/wa-auth
+      # Unique environment variables for this firm
+      - ./firms/alpha/.env:/app/packages/linda-agent/.env
+    # Example of port mapping if web channel is used
+    # ports:
+    #   - "3034:3034"
+
+  # ---------------------------------------------------------
+  # FIRM: Beta Dental
+  # ---------------------------------------------------------
+  linda-beta:
+    <<: *linda-base
+    container_name: linda-beta
+    volumes:
+      - ./firms/beta/wa-auth:/app/packages/linda-agent/data/wa-auth
+      - ./firms/beta/.env:/app/packages/linda-agent/.env
+    # ports:
+    #   - "3035:3034"
+
+# Note: Before starting, create the folders:
+# mkdir -p firms/alpha/wa-auth firms/beta/wa-auth
+# And place your .env files in firms/alpha/.env etc.
