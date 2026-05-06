@@ -25,8 +25,8 @@ RUN pnpm install --frozen-lockfile=false
 # Copy the rest of the source code
 COPY . .
 
-# Build the linda-agent package and its local dependencies
-RUN pnpm build --filter @psf/linda-agent...
+# Build the linda-agent package and its local dependencies recursively
+RUN pnpm -r build --filter @psf/linda-agent...
 
 # Final runtime image
 FROM node:20-slim
