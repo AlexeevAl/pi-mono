@@ -3,6 +3,9 @@
 
 FROM node:20-slim AS builder
 
+# Install git for pnpm to fetch git dependencies
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 # Install pnpm
 RUN npm install -g pnpm@9
 
