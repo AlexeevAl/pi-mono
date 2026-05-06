@@ -23,9 +23,8 @@ services:
       - ./firms/alpha/wa-auth:/app/packages/linda-agent/data/wa-auth
       # Unique environment variables for this firm
       - ./firms/alpha/.env:/app/packages/linda-agent/.env
-    # Example of port mapping if web channel is used
-    # ports:
-    #   - "3034:3034"
+    ports:
+      - "3034:3034"
 
   # ---------------------------------------------------------
   # FIRM: Beta Dental
