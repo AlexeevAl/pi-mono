@@ -64,7 +64,7 @@
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"generate-models": "npx tsx scripts/generate-models.ts",
+		"generate-models": "tsx scripts/generate-models.ts",
 		"build": "npm run generate-models && tsgo -p tsconfig.build.json",
 		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"dev:tsc": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
@@ -109,6 +109,7 @@
 	"devDependencies": {
 		"@types/node": "^24.3.0",
 		"canvas": "^3.2.0",
+		"tsx": "^4.19.2",
 		"vitest": "^3.2.4"
 	}
 }
