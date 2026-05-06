@@ -1,8 +1,12 @@
+import fs from "node:fs";
 import { createServer, type IncomingMessage as NodeRequest, type ServerResponse } from "node:http";
+import path from "node:path";
 import type { LindaAdminAgent } from "../agents/LindaAdminAgent.js";
 import type { LindaClientAgent } from "../agents/LindaClientAgent.js";
 import { type ClientConversationMessage, ClinicBackendClient } from "../core/backend-client.js";
 import type { AgentDecision, BackendConfig, ClubAgentContext } from "../core/types.js";
+import type { TelegramChannel } from "./TelegramChannel.js";
+import type { WhatsAppChannel } from "./WhatsAppChannel.js";
 
 export interface WebChannelConfig {
 	port: number;
@@ -33,6 +37,10 @@ export class WebChannel {
 		private readonly agents: {
 			clientAgent?: LindaClientAgent;
 			adminAgent?: LindaAdminAgent;
+		},
+		private readonly channels?: {
+			whatsapp?: WhatsAppChannel;
+			telegram?: TelegramChannel;
 		},
 	) {
 		this.backend = config.backend ? new ClinicBackendClient(config.backend) : undefined;
@@ -80,8 +88,22 @@ export class WebChannel {
 			return;
 		}
 
-		if (req.method === "GET" && url.pathname === "/health") {
-			this.json(res, 200, { ok: true, role: this.config.role });
+		if (req.method === "GET" && url.pathname === "/setup") {
+			res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+			res.end(buildSetupHtml(this.config));
+			return;
+		}
+
+		if (req.method === "GET" && url.pathname === "/setup/qr") {
+			this.json(res, 200, {
+				qr: this.channels?.whatsapp?.lastQr,
+				status: this.channels?.whatsapp?.connectionStatus,
+			});
+			return;
+		}
+
+		if (req.method === "POST" && url.pathname === "/setup/save") {
+			await this.handleSetupSave(req, res);
 			return;
 		}
 
@@ -306,6 +328,33 @@ export class WebChannel {
 		}
 	}
 
+	private async handleSetupSave(req: NodeRequest, res: ServerResponse): Promise<void> {
+		const body = await readJson<{ telegramToken?: string; telegramAllowedIds?: string }>(req);
+		const token = body.telegramToken?.trim();
+		const allowedIds = body.telegramAllowedIds
+			?.split(",")
+			.map((s) => Number(s.trim()))
+			.filter((n) => !Number.isNaN(n) && n > 0);
+
+		if (token && this.channels?.telegram) {
+			await this.channels.telegram.updateConfig(token, allowedIds || []);
+
+			// Persist to .env or a settings file
+			try {
+				const settingsPath = path.join(process.cwd(), "settings.json");
+				fs.writeFileSync(
+					settingsPath,
+					JSON.stringify({ telegramToken: token, telegramAllowedIds: allowedIds }, null, 2),
+				);
+				console.log(`[Web] Settings saved to ${settingsPath}`);
+			} catch (err) {
+				console.error("[Web] Failed to save settings:", err);
+			}
+		}
+
+		this.json(res, 200, { ok: true });
+	}
+
 	private json(res: ServerResponse, statusCode: number, payload: unknown): void {
 		res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
 		res.end(JSON.stringify(payload));
@@ -327,6 +376,119 @@ async function readJson<T>(req: NodeRequest): Promise<Partial<T>> {
 		});
 		req.on("error", reject);
 	});
+}
+
+function escHtml(str: string): string {
+	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function buildSetupHtml(config: WebChannelConfig): string {
+	const firmName = config.firmName ?? "Linda";
+
+	return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройка — ${escHtml(firmName)}</title>
+<style>
+  :root {
+    --bg: #f4ead9;
+    --ink: #1d1813;
+    --muted: #6d6256;
+    --panel: rgba(255,251,244,0.92);
+    --line: rgba(49,31,17,0.12);
+    --accent: #1d5b49;
+    --shadow: 0 24px 80px rgba(36,22,12,0.12);
+  }
+  body {
+    font-family: Georgia, serif;
+    background: #f4ead9;
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+  .card {
+    background: white;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    max-width: 500px;
+    width: 100%;
+  }
+  h1 { margin-bottom: 20px; font-size: 1.8rem; }
+  h2 { margin: 20px 0 10px; font-size: 1.2rem; color: var(--accent); }
+  .field { margin-bottom: 15px; }
+  label { display: block; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 5px; color: var(--muted); }
+  input { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 1rem; }
+  button { 
+    background: var(--ink); color: white; border: none; padding: 12px 20px; 
+    border-radius: 8px; cursor: pointer; font-size: 1rem; width: 100%; margin-top: 10px;
+  }
+  #qrContainer { text-align: center; margin-top: 20px; border: 1px dashed var(--line); padding: 20px; border-radius: 10px; }
+  img { max-width: 100%; height: auto; }
+  .status { font-size: 0.9rem; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Настройка агента</h1>
+    <p>Фирма: <strong>${escHtml(firmName)}</strong></p>
+
+    <h2>Telegram</h2>
+    <div class="field">
+      <label>Bot Token</label>
+      <input type="text" id="tgToken" placeholder="123456:ABC-DEF...">
+    </div>
+    <div class="field">
+      <label>Allowed User IDs (через запятую)</label>
+      <input type="text" id="tgIds" placeholder="1234567, 8901234">
+    </div>
+    <button onclick="saveTelegram()">Сохранить Telegram</button>
+
+    <h2>WhatsApp</h2>
+    <div id="qrContainer">
+      <div id="qrStatus">Загрузка...</div>
+      <div id="qrImage"></div>
+    </div>
+  </div>
+
+  <script>
+    async function saveTelegram() {
+      const token = document.getElementById('tgToken').value;
+      const ids = document.getElementById('tgIds').value;
+      const res = await fetch('/setup/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramToken: token, telegramAllowedIds: ids })
+      });
+      if (res.ok) alert('Настройки Telegram сохранены!');
+    }
+
+    async function updateQr() {
+      const res = await fetch('/setup/qr');
+      const data = await res.json();
+      const statusEl = document.getElementById('qrStatus');
+      const imageEl = document.getElementById('qrImage');
+
+      if (data.status === 'open') {
+        statusEl.innerText = '✅ WhatsApp подключен!';
+        imageEl.innerHTML = '';
+      } else if (data.qr) {
+        statusEl.innerText = 'Отсканируйте код в приложении WhatsApp:';
+        imageEl.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(data.qr) + '">';
+      } else {
+        statusEl.innerText = 'Ожидание QR-кода... (' + data.status + ')';
+      }
+    }
+
+    setInterval(updateQr, 3000);
+    updateQr();
+  </script>
+</body>
+</html>`;
 }
 
 function buildChatHtml(config: WebChannelConfig): string {
@@ -1015,8 +1177,4 @@ document.getElementById('input').focus();
 </script>
 </body>
 </html>`;
-}
-
-function escHtml(value: string): string {
-	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }

@@ -69,16 +69,26 @@ export interface TelegramChannelConfig {
  * forwarded as targetClientId to the agent.
  */
 export class TelegramChannel {
-	private readonly apiBase: string;
+	private apiBase: string;
 	private offset = 0;
 	private running = false;
 	private pollController: AbortController | null = null;
 
 	constructor(
-		private readonly config: TelegramChannelConfig,
+		private config: TelegramChannelConfig,
 		private readonly agent: LindaAdminAgent,
 	) {
 		this.apiBase = `https://api.telegram.org/bot${config.token}`;
+	}
+
+	public async updateConfig(newToken: string, newAllowedIds: number[]): Promise<void> {
+		console.log("[Telegram] Updating token and reconnecting...");
+		this.stop();
+		this.config.token = newToken;
+		this.config.allowedUserIds = newAllowedIds;
+		this.apiBase = `https://api.telegram.org/bot${newToken}`;
+		this.offset = 0; // Reset offset for new bot
+		await this.start();
 	}
 
 	// --------------------------------------------------------------------------

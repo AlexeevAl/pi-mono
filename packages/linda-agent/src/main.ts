@@ -20,7 +20,25 @@ if (fs.existsSync(".env")) {
 	loadDotenv();
 }
 
+// Load settings.json if exists (overrides .env)
+const settingsPath = path.join(process.cwd(), "settings.json");
+if (fs.existsSync(settingsPath)) {
+	try {
+		const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+		if (settings.telegramToken) process.env.TELEGRAM_BOT_TOKEN = settings.telegramToken;
+		if (settings.telegramAllowedIds) {
+			process.env.TELEGRAM_ALLOWED_USER_IDS = Array.isArray(settings.telegramAllowedIds)
+				? settings.telegramAllowedIds.join(",")
+				: settings.telegramAllowedIds;
+		}
+		console.log(`[Config] Loaded overrides from ${settingsPath}`);
+	} catch (err) {
+		console.warn(`[Config] Failed to parse ${settingsPath}:`, err);
+	}
+}
+
 import { LindaAdminAgent } from "./agents/LindaAdminAgent.js";
+// ... (rest of imports)
 import { LindaClientAgent } from "./agents/LindaClientAgent.js";
 import { TelegramChannel } from "./channels/TelegramChannel.js";
 import { WebChannel } from "./channels/WebChannel.js";
@@ -112,6 +130,8 @@ async function main(): Promise<void> {
 	const webEnabled = parseBoolean(optionalEnv("WEB_ENABLED"), false);
 
 	const channels: Array<{ start(): Promise<void>; stop(): void }> = [];
+	let whatsappChannel: WhatsAppChannel | undefined;
+	let telegramChannel: TelegramChannel | undefined;
 
 	if (whatsappEnabled) {
 		const authDir =
@@ -127,7 +147,8 @@ async function main(): Promise<void> {
 			console.log(`[WhatsApp] allowlist = (all numbers, set WHATSAPP_ALLOWED_USER_IDS for prod)`);
 		}
 
-		channels.push(new WhatsAppChannel({ authDir, allowedPhoneNumbers }, clientAgent));
+		whatsappChannel = new WhatsAppChannel({ authDir, allowedPhoneNumbers }, clientAgent);
+		channels.push(whatsappChannel);
 	} else {
 		console.log(`[WhatsApp] disabled (WHATSAPP_ENABLED=false)`);
 	}
@@ -144,7 +165,8 @@ async function main(): Promise<void> {
 			console.log(`[Telegram] allowlist = (all users — set TELEGRAM_ALLOWED_USER_IDS for prod)`);
 		}
 
-		channels.push(new TelegramChannel({ token, allowedUserIds, pollTimeoutSec }, adminAgent));
+		telegramChannel = new TelegramChannel({ token, allowedUserIds, pollTimeoutSec }, adminAgent);
+		channels.push(telegramChannel);
 	} else {
 		console.log(`[Telegram] disabled (TELEGRAM_ENABLED=false)`);
 	}
@@ -184,6 +206,10 @@ async function main(): Promise<void> {
 					{
 						clientAgent,
 						adminAgent,
+					},
+					{
+						whatsapp: whatsappChannel,
+						telegram: telegramChannel,
 					},
 				),
 			);

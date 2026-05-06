@@ -60,6 +60,9 @@ export class WhatsAppChannel {
 	// Connection & Auth
 	// --------------------------------------------------------------------------
 
+	public lastQr: string | null = null;
+	public connectionStatus: "connecting" | "open" | "close" | "qr" = "connecting";
+
 	private async connect(): Promise<void> {
 		if (this.isConnecting) return;
 		this.isConnecting = true;
@@ -93,20 +96,19 @@ export class WhatsAppChannel {
 				const { connection, lastDisconnect, qr } = update;
 
 				if (qr) {
+					this.lastQr = qr;
+					this.connectionStatus = "qr";
 					console.log("\n[WhatsApp] ══════════════════════════════════════════");
 					console.log("[WhatsApp] Scan the QR code below to log in:");
 					console.log("[WhatsApp] (WhatsApp → Settings → Linked Devices → Link a Device)");
 					console.log("[WhatsApp] ══════════════════════════════════════════\n");
 					QRCode.generate(qr, { small: true });
 					console.log("\n[WhatsApp] ══════════════════════════════════════════");
-					console.log("[WhatsApp] If QR is unreadable, open this URL in browser:");
-					console.log(
-						`[WhatsApp] https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`,
-					);
-					console.log("[WhatsApp] ══════════════════════════════════════════\n");
 				}
 
 				if (connection === "close") {
+					this.connectionStatus = "close";
+					this.lastQr = null;
 					const error = lastDisconnect?.error as Boom;
 					const statusCode = error?.output?.statusCode;
 					const isLoggedOut = statusCode === DisconnectReason.loggedOut;
@@ -128,6 +130,8 @@ export class WhatsAppChannel {
 					}
 				} else if (connection === "open") {
 					console.log("[WhatsApp] Connected");
+					this.connectionStatus = "open";
+					this.lastQr = null;
 					this.isConnecting = false;
 				}
 			});
