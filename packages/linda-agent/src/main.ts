@@ -51,7 +51,7 @@ import { applyAgentRuntimeConfig } from "./runtime-config.js";
 // Env helpers
 // ============================================================================
 
-function requireEnv(name: string): string {
+function _requireEnv(name: string): string {
 	const val = process.env[name];
 	if (!val) throw new Error(`Missing required env var: ${name}`);
 	return val;
@@ -156,7 +156,9 @@ async function main(): Promise<void> {
 	if (telegramEnabled) {
 		const token = optionalEnv("TELEGRAM_BOT_TOKEN");
 		if (!token) {
-			console.warn("[Telegram] WARNING: TELEGRAM_BOT_TOKEN is missing. Telegram channel will be disabled until configured.");
+			console.warn(
+				"[Telegram] WARNING: TELEGRAM_BOT_TOKEN is missing. Telegram channel will be disabled until configured.",
+			);
 		} else {
 			const allowedUserIds = parseNumericIds(optionalEnv("TELEGRAM_ALLOWED_USER_IDS"));
 			const pollTimeoutSec = Number(optionalEnv("TELEGRAM_POLL_TIMEOUT_SEC")) || 30;

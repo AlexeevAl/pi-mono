@@ -1,0 +1,12 @@
+FROM node:20-slim
+
+RUN apt-get update \
+    && apt-get install -y bash docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+ENV NODE_ENV=production
+ENV PROVISION_PORT=3037
+
+CMD ["node", "provision-firm-server.mjs"]

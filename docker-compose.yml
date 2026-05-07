@@ -13,6 +13,29 @@ x-linda-base: &linda-base
 
 services:
   # ---------------------------------------------------------
+  # Firm Provisioner
+  # ---------------------------------------------------------
+  # Vercel calls this service after /api/admin/firms creates a company.
+  # It runs ./add-firm.sh <firmId> inside this repo and can update
+  # docker-compose.yml for the per-firm Linda agent.
+  linda-provisioner:
+    build:
+      context: .
+      dockerfile: Dockerfile.provisioner
+    container_name: linda-provisioner
+    restart: always
+    working_dir: /workspace
+    environment:
+      PROVISION_PORT: 3037
+      PROVISION_SHARED_SECRET: ${PROVISION_SHARED_SECRET:-}
+      AUTO_START: ${AUTO_START:-1}
+    ports:
+      - "3037:3037"
+    volumes:
+      - ./:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # ---------------------------------------------------------
   # FIRM: Alpha Clinic
   # ---------------------------------------------------------
   linda-alpha:

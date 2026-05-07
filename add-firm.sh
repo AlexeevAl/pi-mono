@@ -23,7 +23,7 @@ if [ ! -f "$FIRM_DIR/.env" ]; then
     if [ -f "firms/alpha/.env.example" ]; then
         cp "firms/alpha/.env.example" "$FIRM_DIR/.env"
         # Update FIRM_ID in the new .env
-        sed -i "s/FIRM_ID=.*/FIRM_ID=${FIRM_NAME}_clinic_$(date +%Y%m%d)/" "$FIRM_DIR/.env"
+        sed -i "s/FIRM_ID=.*/FIRM_ID=${FIRM_NAME}/" "$FIRM_DIR/.env"
         echo "✅ Created .env for $FIRM_NAME (don't forget to add API keys!)"
     else
         echo "⚠️  Warning: firms/alpha/.env.example not found. Please create .env manually."
@@ -63,3 +63,8 @@ echo "Done! Next steps:"
 echo "1. Edit $FIRM_DIR/.env to add your API keys."
 echo "2. Run: docker compose up -d --build"
 echo "--------------------------------------------------------"
+
+if [ "${AUTO_START:-0}" = "1" ]; then
+    echo "AUTO_START=1, starting linda-$FIRM_NAME..."
+    docker compose up -d --build "linda-$FIRM_NAME"
+fi
