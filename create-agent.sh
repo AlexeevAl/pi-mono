@@ -38,6 +38,8 @@ fi
 # 3. Добавляем в docker-compose.yml
 if grep -q "linda-$FIRM_ID:" "$COMPOSE_FILE"; then
     echo "ℹ️  Фирма уже есть в docker-compose.yml"
+    # Извлекаем порт существующей фирмы
+    NEW_PORT=$(grep -A 5 "linda-$FIRM_ID:" "$COMPOSE_FILE" | grep -oE "[0-9]{4}:" | head -n1 | tr -d ':')
 else
     # Ищем последний порт
     LAST_PORT=$(grep -oE "303[0-9]" "$COMPOSE_FILE" | sort -nr | head -n1)
