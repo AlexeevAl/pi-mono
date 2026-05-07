@@ -174,33 +174,35 @@ function readContainerName(serviceBlock) {
 }
 
 async function readDockerComposePs() {
-    const result = await runCommand('docker', ['compose', 'ps', '--format', 'json']);
+    const result = await runCommand('docker', ['ps', '-a', '--filter', 'name=^linda-', '--format', '{{json .}}']);
     if (result.exitCode !== 0) return [];
     const trimmed = result.stdout.trim();
     if (!trimmed) return [];
 
     try {
-        const parsed = JSON.parse(trimmed);
-        const items = Array.isArray(parsed) ? parsed : [parsed];
-        return items.map(normalizeComposePsItem).filter((item) => item.service.startsWith('linda-') && item.firmId !== 'provisioner');
-    } catch {
         return trimmed
             .split('\n')
+            .filter(Boolean)
             .map((line) => JSON.parse(line))
-            .map(normalizeComposePsItem)
+            .map(normalizeDockerPsItem)
             .filter((item) => item.service.startsWith('linda-') && item.firmId !== 'provisioner');
+    } catch (error) {
+        console.warn('[Provision] failed to parse docker ps output', error);
+        return [];
     }
 }
 
-function normalizeComposePsItem(item) {
-    const service = String(item.Service || item.service || '');
+function normalizeDockerPsItem(item) {
+    const name = String(item.Names || item.names || item.Name || item.name || '').replace(/^\//, '');
+    const service = name.startsWith('linda-') ? name : String(item.Service || item.service || '');
+    const state = String(item.State || item.state || item.Status || item.status || '').toLowerCase();
     return {
         service,
         firmId: normalizeFirmId(service.replace(/^linda-/, '')),
-        name: String(item.Name || item.name || ''),
-        state: String(item.State || item.state || '').toLowerCase(),
+        name,
+        state: state.includes('up') ? 'running' : state,
         status: String(item.Status || item.status || ''),
-        ports: String(item.Publishers ? JSON.stringify(item.Publishers) : item.Ports || item.ports || ''),
+        ports: String(item.Ports || item.ports || ''),
     };
 }
 
