@@ -158,14 +158,50 @@ async function readLindaServices() {
     const composePath = resolve(repoRoot, 'docker-compose.yml');
     if (!existsSync(composePath)) return [];
     const text = await readFile(composePath, 'utf8');
-    const matches = [...text.matchAll(/^  linda-([a-z0-9_-]+):[\s\S]*?(?=^  [a-zA-Z0-9_-]+:|\Z)/gm)];
-    return matches
-        .map((match) => ({
-            firmId: normalizeFirmId(match[1]),
-            serviceName: `linda-${normalizeFirmId(match[1])}`,
-            containerName: readContainerName(match[0]) || `linda-${normalizeFirmId(match[1])}`,
-        }))
+
+    return readComposeServiceBlocks(text)
+        .map((serviceBlock) => {
+            const firmId = normalizeFirmId(serviceBlock.serviceName.replace(/^linda-/, ''));
+            return {
+                firmId,
+                serviceName: `linda-${firmId}`,
+                containerName: readContainerName(serviceBlock.block) || `linda-${firmId}`,
+            };
+        })
         .filter((service) => service.firmId && service.firmId !== 'provisioner');
+}
+
+function readComposeServiceBlocks(text) {
+    const lines = text.split(/\r?\n/);
+    const blocks = [];
+    let current = null;
+
+    for (const line of lines) {
+        const serviceMatch = line.match(/^  (linda-[a-z0-9_-]+):\s*$/);
+        const nextServiceMatch = line.match(/^  [a-zA-Z0-9_-]+:\s*$/);
+
+        if (serviceMatch) {
+            if (current) blocks.push(current);
+            current = {
+                serviceName: serviceMatch[1],
+                block: `${line}\n`,
+            };
+            continue;
+        }
+
+        if (nextServiceMatch && current) {
+            blocks.push(current);
+            current = null;
+            continue;
+        }
+
+        if (current) {
+            current.block += `${line}\n`;
+        }
+    }
+
+    if (current) blocks.push(current);
+    return blocks;
 }
 
 function readContainerName(serviceBlock) {
