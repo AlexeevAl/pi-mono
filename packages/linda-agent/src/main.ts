@@ -154,19 +154,23 @@ async function main(): Promise<void> {
 	}
 
 	if (telegramEnabled) {
-		const token = requireEnv("TELEGRAM_BOT_TOKEN");
-		const allowedUserIds = parseNumericIds(optionalEnv("TELEGRAM_ALLOWED_USER_IDS"));
-		const pollTimeoutSec = Number(optionalEnv("TELEGRAM_POLL_TIMEOUT_SEC")) || 30;
-
-		console.log(`[Telegram] token    = ${token.slice(0, 8)}...`);
-		if (allowedUserIds.length > 0) {
-			console.log(`[Telegram] allowlist = ${allowedUserIds.join(", ")}`);
+		const token = optionalEnv("TELEGRAM_BOT_TOKEN");
+		if (!token) {
+			console.warn("[Telegram] WARNING: TELEGRAM_BOT_TOKEN is missing. Telegram channel will be disabled until configured.");
 		} else {
-			console.log(`[Telegram] allowlist = (all users — set TELEGRAM_ALLOWED_USER_IDS for prod)`);
-		}
+			const allowedUserIds = parseNumericIds(optionalEnv("TELEGRAM_ALLOWED_USER_IDS"));
+			const pollTimeoutSec = Number(optionalEnv("TELEGRAM_POLL_TIMEOUT_SEC")) || 30;
 
-		telegramChannel = new TelegramChannel({ token, allowedUserIds, pollTimeoutSec }, adminAgent);
-		channels.push(telegramChannel);
+			console.log(`[Telegram] token    = ${token.slice(0, 8)}...`);
+			if (allowedUserIds.length > 0) {
+				console.log(`[Telegram] allowlist = ${allowedUserIds.join(", ")}`);
+			} else {
+				console.log(`[Telegram] allowlist = (all users — set TELEGRAM_ALLOWED_USER_IDS for prod)`);
+			}
+
+			telegramChannel = new TelegramChannel({ token, allowedUserIds, pollTimeoutSec }, adminAgent);
+			channels.push(telegramChannel);
+		}
 	} else {
 		console.log(`[Telegram] disabled (TELEGRAM_ENABLED=false)`);
 	}
