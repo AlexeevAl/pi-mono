@@ -45,16 +45,18 @@ createServer(async (req, res) => {
 
         const body = await readJson(req);
         const firmId = normalizeFirmId(body?.firm?.id || body?.firmId);
+        const firmName = normalizeFirmName(body?.firm?.name || body?.firmName || firmId);
         if (!firmId) {
             writeJson(res, 400, { error: 'missing_firm_id' });
             return;
         }
 
-        const result = await runAddFirm(firmId);
+        const result = await runAddFirm(firmId, firmName);
         if (result.exitCode !== 0) {
             writeJson(res, 500, {
                 error: 'add_firm_failed',
                 firmId,
+                firmName,
                 exitCode: result.exitCode,
                 stdout: result.stdout,
                 stderr: result.stderr,
@@ -65,6 +67,7 @@ createServer(async (req, res) => {
         writeJson(res, 200, {
             ok: true,
             firmId,
+            firmName,
             stdout: result.stdout,
             stderr: result.stderr,
         });
@@ -84,6 +87,11 @@ function normalizeFirmId(value) {
     return value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 64);
 }
 
+function normalizeFirmName(value) {
+    if (typeof value !== 'string') return '';
+    return value.trim().replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').slice(0, 120);
+}
+
 function isAuthorized(req) {
     if (!sharedSecret) return true;
     const auth = req.headers.authorization || '';
@@ -92,9 +100,9 @@ function isAuthorized(req) {
     return auth === `Bearer ${sharedSecret}` || auth === sharedSecret || resolvedHeaderSecret === sharedSecret;
 }
 
-function runAddFirm(firmId) {
+function runAddFirm(firmId, firmName) {
     return new Promise((resolvePromise) => {
-        const child = spawn('bash', [addFirmScript, firmId], {
+        const child = spawn('bash', [addFirmScript, firmId, firmName || firmId], {
             cwd: repoRoot,
             env: process.env,
         });

@@ -5,12 +5,13 @@
 # ============================================================================
 
 if [ -z "$1" ]; then
-    echo "Usage: ./add-firm.sh <firm_name>"
+    echo "Usage: ./add-firm.sh <firm_id> [firm_display_name]"
     exit 1
 fi
 
-FIRM_NAME=$1
-FIRM_DIR="firms/$FIRM_NAME"
+FIRM_ID=$1
+FIRM_NAME=${2:-$FIRM_ID}
+FIRM_DIR="firms/$FIRM_ID"
 COMPOSE_FILE="docker-compose.yml"
 
 upsert_env() {
@@ -25,7 +26,7 @@ upsert_env() {
     fi
 }
 
-echo "🚀 Setting up new firm: $FIRM_NAME..."
+echo "🚀 Setting up new firm: $FIRM_ID ($FIRM_NAME)..."
 
 # 1. Create directory structure
 mkdir -p "$FIRM_DIR/wa-auth"
@@ -39,10 +40,11 @@ if [ ! -f "$FIRM_DIR/.env" ]; then
         echo "✅ Created .env for $FIRM_NAME from $ENV_TEMPLATE"
     else
         cat <<EOF > "$FIRM_DIR/.env"
-FIRM_ID=$FIRM_NAME
+FIRM_ID=$FIRM_ID
+FIRM_NAME=$FIRM_NAME
 LOCALE=ru
 PSF_ENGINE_URL=${PSF_ENGINE_URL:-http://localhost:3050}
-EDGE_ID=linda-$FIRM_NAME-edge
+EDGE_ID=linda-$FIRM_ID-edge
 FIRM_SHARED_SECRET=${FIRM_SHARED_SECRET:-${BRIDGE_SHARED_SECRET:-psf_hermes_secret_123}}
 LLM_PROVIDER=${LLM_PROVIDER:-openai}
 LLM_MODEL=${LLM_MODEL:-gpt-5.4-nano}
@@ -52,17 +54,18 @@ WEB_PORT=3034
 WHATSAPP_ENABLED=false
 TELEGRAM_ENABLED=false
 EOF
-        echo "✅ Created minimal .env for $FIRM_NAME"
+        echo "✅ Created minimal .env for $FIRM_ID"
     fi
 
-    upsert_env "$FIRM_DIR/.env" "FIRM_ID" "$FIRM_NAME"
-    upsert_env "$FIRM_DIR/.env" "EDGE_ID" "linda-$FIRM_NAME-edge"
+    upsert_env "$FIRM_DIR/.env" "FIRM_ID" "$FIRM_ID"
+    upsert_env "$FIRM_DIR/.env" "FIRM_NAME" "$FIRM_NAME"
+    upsert_env "$FIRM_DIR/.env" "EDGE_ID" "linda-$FIRM_ID-edge"
     upsert_env "$FIRM_DIR/.env" "WEB_PORT" "3034"
 fi
 
 # 3. Add to docker-compose.yml if not already there
-if grep -q "linda-$FIRM_NAME:" "$COMPOSE_FILE"; then
-    echo "ℹ️  Firm $FIRM_NAME already exists in $COMPOSE_FILE"
+if grep -q "linda-$FIRM_ID:" "$COMPOSE_FILE"; then
+    echo "ℹ️  Firm $FIRM_ID already exists in $COMPOSE_FILE"
 else
     # Find the last used port for web
     LAST_PORT=$(grep "303" "$COMPOSE_FILE" | grep -oE "[0-9]{4}" | sort -nr | head -n1)
@@ -72,9 +75,9 @@ else
     # Append new service block
     cat <<EOF >> "$COMPOSE_FILE"
 
-  linda-$FIRM_NAME:
+  linda-$FIRM_ID:
     <<: *linda-base
-    container_name: linda-$FIRM_NAME
+    container_name: linda-$FIRM_ID
     ports:
       - "$NEW_PORT:3034"
     volumes:
@@ -82,7 +85,7 @@ else
       - ./$FIRM_DIR/.env:/app/packages/linda-agent/.env
 EOF
     
-    echo "✅ Added linda-$FIRM_NAME to $COMPOSE_FILE on port $NEW_PORT"
+    echo "✅ Added linda-$FIRM_ID to $COMPOSE_FILE on port $NEW_PORT"
 fi
 
 echo "--------------------------------------------------------"
@@ -92,6 +95,6 @@ echo "2. Run: docker compose up -d --build"
 echo "--------------------------------------------------------"
 
 if [ "${AUTO_START:-0}" = "1" ]; then
-    echo "AUTO_START=1, starting linda-$FIRM_NAME..."
-    docker compose up -d --build "linda-$FIRM_NAME"
+    echo "AUTO_START=1, starting linda-$FIRM_ID..."
+    docker compose up -d --build "linda-$FIRM_ID"
 fi
