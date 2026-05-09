@@ -26,6 +26,21 @@ upsert_env() {
     fi
 }
 
+run_compose() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose "$@"
+        return $?
+    fi
+
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose "$@"
+        return $?
+    fi
+
+    echo "docker compose is not available" >&2
+    return 127
+}
+
 echo "🚀 Setting up new firm: $FIRM_ID ($FIRM_NAME)..."
 
 # 1. Create directory structure
@@ -96,5 +111,5 @@ echo "--------------------------------------------------------"
 
 if [ "${AUTO_START:-0}" = "1" ]; then
     echo "AUTO_START=1, starting linda-$FIRM_ID..."
-    docker compose up -d --build "linda-$FIRM_ID"
+    run_compose up -d --build "linda-$FIRM_ID"
 fi
