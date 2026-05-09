@@ -13,6 +13,8 @@ FIRM_ID=$1
 FIRM_NAME=${2:-$FIRM_ID}
 FIRM_DIR="firms/$FIRM_ID"
 COMPOSE_FILE="docker-compose.yml"
+DEFAULT_PSF_ENGINE_URL="https://psf-engine-v2-clinic-profile-os.vercel.app"
+RESOLVED_PSF_ENGINE_URL=${PSF_ENGINE_URL:-$DEFAULT_PSF_ENGINE_URL}
 
 upsert_env() {
     local file=$1
@@ -58,7 +60,7 @@ if [ ! -f "$FIRM_DIR/.env" ]; then
 FIRM_ID=$FIRM_ID
 FIRM_NAME=$FIRM_NAME
 LOCALE=ru
-PSF_ENGINE_URL=${PSF_ENGINE_URL:-http://localhost:3050}
+PSF_ENGINE_URL=$RESOLVED_PSF_ENGINE_URL
 EDGE_ID=linda-$FIRM_ID-edge
 FIRM_SHARED_SECRET=${FIRM_SHARED_SECRET:-${BRIDGE_SHARED_SECRET:-psf_hermes_secret_123}}
 LLM_PROVIDER=${LLM_PROVIDER:-openai}
@@ -76,6 +78,7 @@ fi
 
 upsert_env "$FIRM_DIR/.env" "FIRM_ID" "$FIRM_ID"
 upsert_env "$FIRM_DIR/.env" "FIRM_NAME" "$FIRM_NAME"
+upsert_env "$FIRM_DIR/.env" "PSF_ENGINE_URL" "$RESOLVED_PSF_ENGINE_URL"
 upsert_env "$FIRM_DIR/.env" "EDGE_ID" "linda-$FIRM_ID-edge"
 upsert_env "$FIRM_DIR/.env" "WEB_ENABLED" "true"
 upsert_env "$FIRM_DIR/.env" "WEB_ROLE" "client"
@@ -85,6 +88,27 @@ upsert_env "$FIRM_DIR/.env" "WHATSAPP_AUTH_DIR" "/app/packages/linda-agent/data/
 # 3. Add to docker-compose.yml if not already there
 if grep -q "linda-$FIRM_ID:" "$COMPOSE_FILE"; then
     echo "ℹ️  Firm $FIRM_ID already exists in $COMPOSE_FILE"
+    if ! awk "
+        /^  linda-$FIRM_ID:/ { in_service = 1 }
+        in_service && /^  [a-zA-Z0-9_-]+:/ && !/^  linda-$FIRM_ID:/ { in_service = 0 }
+        in_service && /env_file:/ { found = 1 }
+        END { exit found ? 0 : 1 }
+    " "$COMPOSE_FILE"; then
+        TMP_COMPOSE=$(mktemp)
+        awk "
+            /^  linda-$FIRM_ID:/ { in_service = 1 }
+            in_service && /^  [a-zA-Z0-9_-]+:/ && !/^  linda-$FIRM_ID:/ { in_service = 0 }
+            {
+                print
+                if (in_service && \$0 ~ /^    container_name: linda-$FIRM_ID$/) {
+                    print \"    env_file:\"
+                    print \"      - ./$FIRM_DIR/.env\"
+                }
+            }
+        " "$COMPOSE_FILE" > "$TMP_COMPOSE"
+        mv "$TMP_COMPOSE" "$COMPOSE_FILE"
+        echo "✅ Added env_file for linda-$FIRM_ID"
+    fi
 else
     # Find the last used port for web
     LAST_PORT=$(grep "303" "$COMPOSE_FILE" | grep -oE "[0-9]{4}" | sort -nr | head -n1)
@@ -97,6 +121,8 @@ else
   linda-$FIRM_ID:
     <<: *linda-base
     container_name: linda-$FIRM_ID
+    env_file:
+      - ./$FIRM_DIR/.env
     ports:
       - "$NEW_PORT:3034"
     volumes:

@@ -24,7 +24,7 @@ services:
       dockerfile: Dockerfile.provisioner
     container_name: linda-provisioner
     restart: always
-    working_dir: /workspace
+    working_dir: ${LINDA_REPO_DIR:-/workspace}
     environment:
       PROVISION_PORT: 3037
       PROVISION_SHARED_SECRET: ${PROVISION_SHARED_SECRET:-}
@@ -32,7 +32,7 @@ services:
     ports:
       - "3037:3037"
     volumes:
-      - ./:/workspace
+      - ${LINDA_REPO_DIR:-.}:${LINDA_REPO_DIR:-/workspace}
       - /var/run/docker.sock:/var/run/docker.sock
 
   # ---------------------------------------------------------
