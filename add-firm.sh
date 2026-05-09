@@ -72,11 +72,15 @@ EOF
         echo "✅ Created minimal .env for $FIRM_ID"
     fi
 
-    upsert_env "$FIRM_DIR/.env" "FIRM_ID" "$FIRM_ID"
-    upsert_env "$FIRM_DIR/.env" "FIRM_NAME" "$FIRM_NAME"
-    upsert_env "$FIRM_DIR/.env" "EDGE_ID" "linda-$FIRM_ID-edge"
-    upsert_env "$FIRM_DIR/.env" "WEB_PORT" "3034"
 fi
+
+upsert_env "$FIRM_DIR/.env" "FIRM_ID" "$FIRM_ID"
+upsert_env "$FIRM_DIR/.env" "FIRM_NAME" "$FIRM_NAME"
+upsert_env "$FIRM_DIR/.env" "EDGE_ID" "linda-$FIRM_ID-edge"
+upsert_env "$FIRM_DIR/.env" "WEB_ENABLED" "true"
+upsert_env "$FIRM_DIR/.env" "WEB_ROLE" "client"
+upsert_env "$FIRM_DIR/.env" "WEB_PORT" "3034"
+upsert_env "$FIRM_DIR/.env" "WHATSAPP_AUTH_DIR" "/app/packages/linda-agent/data/wa-auth"
 
 # 3. Add to docker-compose.yml if not already there
 if grep -q "linda-$FIRM_ID:" "$COMPOSE_FILE"; then
