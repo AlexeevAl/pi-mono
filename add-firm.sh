@@ -12,7 +12,8 @@ fi
 FIRM_ID=$1
 FIRM_NAME=${2:-$FIRM_ID}
 FIRM_DIR="firms/$FIRM_ID"
-COMPOSE_FILE="docker-compose.yml"
+BASE_COMPOSE_FILE="docker-compose.yml"
+COMPOSE_FILE="docker-compose.override.yml"
 DEFAULT_PSF_ENGINE_URL="https://psf-engine-v2-clinic-profile-os.vercel.app"
 RESOLVED_PSF_ENGINE_URL=${PSF_ENGINE_URL:-$DEFAULT_PSF_ENGINE_URL}
 
@@ -85,7 +86,13 @@ upsert_env "$FIRM_DIR/.env" "WEB_ROLE" "client"
 upsert_env "$FIRM_DIR/.env" "WEB_PORT" "3034"
 upsert_env "$FIRM_DIR/.env" "WHATSAPP_AUTH_DIR" "/app/packages/linda-agent/data/wa-auth"
 
-# 3. Add to docker-compose.yml if not already there
+if [ ! -f "$COMPOSE_FILE" ]; then
+    cat <<EOF > "$COMPOSE_FILE"
+services:
+EOF
+fi
+
+# 3. Add to docker-compose.override.yml if not already there
 if grep -q "linda-$FIRM_ID:" "$COMPOSE_FILE"; then
     echo "ℹ️  Firm $FIRM_ID already exists in $COMPOSE_FILE"
     if ! awk "
@@ -111,7 +118,7 @@ if grep -q "linda-$FIRM_ID:" "$COMPOSE_FILE"; then
     fi
 else
     # Find the last used port for web
-    LAST_PORT=$(grep "303" "$COMPOSE_FILE" | grep -oE "[0-9]{4}" | sort -nr | head -n1)
+    LAST_PORT=$(grep "303" "$BASE_COMPOSE_FILE" "$COMPOSE_FILE" | grep -oE "[0-9]{4}" | sort -nr | head -n1)
     if [ -z "$LAST_PORT" ]; then LAST_PORT=3033; fi
     NEW_PORT=$((LAST_PORT + 1))
 
@@ -119,8 +126,15 @@ else
     cat <<EOF >> "$COMPOSE_FILE"
 
   linda-$FIRM_ID:
-    <<: *linda-base
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: linda-$FIRM_ID
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
     env_file:
       - ./$FIRM_DIR/.env
     ports:

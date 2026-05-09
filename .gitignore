@@ -41,3 +41,7 @@ collect.sh
 .linda/
 .claude/
 packages/linda/.run/
+
+# Linda generated runtime services
+docker-compose.override.yml
+firms/*/wa-auth/

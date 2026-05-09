@@ -163,9 +163,9 @@ async function readFirmFolderIds() {
 }
 
 async function readLindaServices() {
-    const composePath = resolve(repoRoot, 'docker-compose.yml');
-    if (!existsSync(composePath)) return [];
-    const text = await readFile(composePath, 'utf8');
+    const composeTexts = await Promise.all(['docker-compose.yml', 'docker-compose.override.yml'].map(readComposeFile));
+    const text = composeTexts.filter(Boolean).join('\n');
+    if (!text) return [];
 
     return readComposeServiceBlocks(text)
         .map((serviceBlock) => {
@@ -177,6 +177,12 @@ async function readLindaServices() {
             };
         })
         .filter((service) => service.firmId && service.firmId !== 'provisioner');
+}
+
+async function readComposeFile(fileName) {
+    const composePath = resolve(repoRoot, fileName);
+    if (!existsSync(composePath)) return '';
+    return readFile(composePath, 'utf8');
 }
 
 function readComposeServiceBlocks(text) {

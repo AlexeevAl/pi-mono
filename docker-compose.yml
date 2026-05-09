@@ -1,5 +1,3 @@
-version: '3.8'
-
 # common-config for all agents to avoid repetition
 x-linda-base: &linda-base
   build:
@@ -35,32 +33,5 @@ services:
       - ${LINDA_REPO_DIR:-.}:${LINDA_REPO_DIR:-/workspace}
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # ---------------------------------------------------------
-  # FIRM: Alpha Clinic
-  # ---------------------------------------------------------
-  linda-alpha:
-    <<: *linda-base
-    container_name: linda-alpha
-    volumes:
-      # WhatsApp session persistence
-      - ./firms/alpha/wa-auth:/app/packages/linda-agent/data/wa-auth
-      # Unique environment variables for this firm
-      - ./firms/alpha/.env:/app/packages/linda-agent/.env
-    ports:
-      - "3034:3034"
-
-  # ---------------------------------------------------------
-  # FIRM: Beta Dental
-  # ---------------------------------------------------------
-  linda-beta:
-    <<: *linda-base
-    container_name: linda-beta
-    volumes:
-      - ./firms/beta/wa-auth:/app/packages/linda-agent/data/wa-auth
-      - ./firms/beta/.env:/app/packages/linda-agent/.env
-    # ports:
-    #   - "3035:3034"
-
-# Note: Before starting, create the folders:
-# mkdir -p firms/alpha/wa-auth firms/beta/wa-auth
-# And place your .env files in firms/alpha/.env etc.
+# Firm services are generated into docker-compose.override.yml by add-firm.sh.
+# Keep this tracked file free of per-firm runtime state so git pull stays clean.
