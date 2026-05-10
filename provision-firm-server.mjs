@@ -63,13 +63,17 @@ createServer(async (req, res) => {
             });
             return;
         }
+        const startResult = startFirmAsync(firmId);
 
         writeJson(res, 200, {
             ok: true,
+            status: startResult.started ? 'started' : 'registered',
             firmId,
             firmName,
+            serviceName: `linda-${firmId}`,
             stdout: result.stdout,
             stderr: result.stderr,
+            start: startResult,
         });
     } catch (error) {
         writeJson(res, 500, {
@@ -104,7 +108,10 @@ function runAddFirm(firmId, firmName) {
     return new Promise((resolvePromise) => {
         const child = spawn('bash', [addFirmScript, firmId, firmName || firmId], {
             cwd: repoRoot,
-            env: process.env,
+            env: {
+                ...process.env,
+                AUTO_START: '0',
+            },
         });
         let stdout = '';
         let stderr = '';
@@ -118,6 +125,44 @@ function runAddFirm(firmId, firmName) {
             resolvePromise({ exitCode, stdout, stderr });
         });
     });
+}
+
+function startFirmAsync(firmId) {
+    const serviceName = `linda-${firmId}`;
+    const command = [
+        'if docker compose version >/dev/null 2>&1; then',
+        `docker compose up -d --build ${shellQuote(serviceName)};`,
+        'elif command -v docker-compose >/dev/null 2>&1; then',
+        `docker-compose up -d --build ${shellQuote(serviceName)};`,
+        'else',
+        'echo "docker compose is not available" >&2;',
+        'exit 127;',
+        'fi',
+    ].join(' ');
+
+    try {
+        const child = spawn('bash', ['-lc', command], {
+            cwd: repoRoot,
+            env: process.env,
+            detached: true,
+            stdio: 'ignore',
+        });
+        child.unref();
+        return {
+            started: true,
+            serviceName,
+        };
+    } catch (error) {
+        return {
+            started: false,
+            serviceName,
+            message: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+function shellQuote(value) {
+    return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
 
 async function listRuntimeFirms() {
