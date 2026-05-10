@@ -95,9 +95,11 @@ export class WebChannel {
 		}
 
 		if (req.method === "GET" && url.pathname === "/setup/qr") {
+			const whatsapp = this.channels?.whatsapp;
 			this.json(res, 200, {
-				qr: this.channels?.whatsapp?.lastQr,
-				status: this.channels?.whatsapp?.connectionStatus,
+				enabled: Boolean(whatsapp),
+				qr: whatsapp?.lastQr ?? null,
+				status: whatsapp?.connectionStatus ?? "disabled",
 			});
 			return;
 		}
@@ -476,11 +478,15 @@ function buildSetupHtml(config: WebChannelConfig): string {
       if (data.status === 'open') {
         statusEl.innerText = '✅ WhatsApp подключен!';
         imageEl.innerHTML = '';
+      } else if (!data.enabled || data.status === 'disabled') {
+        statusEl.innerText = 'WhatsApp пока выключен для этого агента.';
+        imageEl.innerHTML = '';
       } else if (data.qr) {
         statusEl.innerText = 'Отсканируйте код в приложении WhatsApp:';
         imageEl.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(data.qr) + '">';
       } else {
-        statusEl.innerText = 'Ожидание QR-кода... (' + data.status + ')';
+        statusEl.innerText = 'Ожидание QR-кода... (' + (data.status || 'pending') + ')';
+        imageEl.innerHTML = '';
       }
     }
 
