@@ -178,6 +178,7 @@ function runAddFirm(firmId, firmName) {
 function startFirmAsync(firmId) {
     const serviceName = `linda-${firmId}`;
     const command = [
+        cleanupFirmContainersCommand(serviceName),
         'if docker compose version >/dev/null 2>&1; then',
         `docker compose up -d --build ${shellQuote(serviceName)};`,
         'elif command -v docker-compose >/dev/null 2>&1; then',
@@ -254,6 +255,7 @@ function upsertEnvValues(text, values) {
 function restartFirmAsync(firmId) {
     const serviceName = `linda-${firmId}`;
     const command = [
+        cleanupFirmContainersCommand(serviceName),
         'if docker compose version >/dev/null 2>&1; then',
         `docker compose up -d --force-recreate ${shellQuote(serviceName)};`,
         'elif command -v docker-compose >/dev/null 2>&1; then',
@@ -283,6 +285,15 @@ function restartFirmAsync(firmId) {
             message: error instanceof Error ? error.message : String(error),
         };
     }
+}
+
+function cleanupFirmContainersCommand(serviceName) {
+    const quotedService = shellQuote(serviceName);
+    return [
+        'docker ps -a --format "{{.ID}} {{.Names}}"',
+        `| awk -v service=${quotedService} '$2 == service || $2 ~ ("(^|_)" service "$") { print $1 }'`,
+        '| xargs -r docker rm -f;',
+    ].join(' ');
 }
 
 function shellQuote(value) {
