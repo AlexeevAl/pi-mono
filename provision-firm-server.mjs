@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const port = Number(process.env.PROVISION_PORT || 3037);
@@ -30,6 +30,34 @@ createServer(async (req, res) => {
             }
 
             writeJson(res, 200, await listRuntimeFirms());
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/api/admin/firms/channels') {
+            if (!isAuthorized(req)) {
+                writeJson(res, 403, { error: 'forbidden' });
+                return;
+            }
+
+            const body = await readJson(req);
+            const firmId = normalizeFirmId(body?.firmId);
+            if (!firmId) {
+                writeJson(res, 400, { error: 'missing_firm_id' });
+                return;
+            }
+
+            const channels = normalizeChannels(body?.channels);
+            const envResult = await writeFirmChannelEnv(firmId, channels);
+            const restartResult = restartFirmAsync(firmId);
+            writeJson(res, 200, {
+                ok: true,
+                status: restartResult.started ? 'started' : 'registered',
+                firmId,
+                serviceName: `linda-${firmId}`,
+                channels,
+                env: envResult,
+                restart: restartResult,
+            });
             return;
         }
 
@@ -84,6 +112,7 @@ createServer(async (req, res) => {
 }).listen(port, () => {
     console.log(`[Provision] listening on http://localhost:${port}`);
     console.log(`[Provision] endpoint POST /api/admin/firms/provision`);
+    console.log(`[Provision] endpoint POST /api/admin/firms/channels`);
 });
 
 function normalizeFirmId(value) {
@@ -94,6 +123,25 @@ function normalizeFirmId(value) {
 function normalizeFirmName(value) {
     if (typeof value !== 'string') return '';
     return value.trim().replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function normalizeChannels(value) {
+    const raw = value && typeof value === 'object' ? value : {};
+    return {
+        web: readBoolean(raw.web, true),
+        whatsapp: readBoolean(raw.whatsapp, false),
+        telegram: readBoolean(raw.telegram, false),
+    };
+}
+
+function readBoolean(value, fallback) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+        if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+    }
+    return fallback;
 }
 
 function isAuthorized(req) {
@@ -134,6 +182,82 @@ function startFirmAsync(firmId) {
         `docker compose up -d --build ${shellQuote(serviceName)};`,
         'elif command -v docker-compose >/dev/null 2>&1; then',
         `docker-compose up -d --build ${shellQuote(serviceName)};`,
+        'else',
+        'echo "docker compose is not available" >&2;',
+        'exit 127;',
+        'fi',
+    ].join(' ');
+
+    try {
+        const child = spawn('bash', ['-lc', command], {
+            cwd: repoRoot,
+            env: process.env,
+            detached: true,
+            stdio: 'ignore',
+        });
+        child.unref();
+        return {
+            started: true,
+            serviceName,
+        };
+    } catch (error) {
+        return {
+            started: false,
+            serviceName,
+            message: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+async function writeFirmChannelEnv(firmId, channels) {
+    const firmDir = resolve(repoRoot, 'firms', firmId);
+    const envPath = resolve(firmDir, '.env');
+    await mkdir(firmDir, { recursive: true });
+    const previousText = existsSync(envPath) ? await readFile(envPath, 'utf8') : '';
+    const nextText = upsertEnvValues(previousText, {
+        WEB_ENABLED: booleanEnv(channels.web),
+        WHATSAPP_ENABLED: booleanEnv(channels.whatsapp),
+        TELEGRAM_ENABLED: booleanEnv(channels.telegram),
+    });
+    await writeFile(envPath, nextText);
+    return {
+        envPath: `firms/${firmId}/.env`,
+        updated: true,
+    };
+}
+
+function booleanEnv(value) {
+    return value ? 'true' : 'false';
+}
+
+function upsertEnvValues(text, values) {
+    const lines = text.split(/\r?\n/).filter((line, index, array) => line.length > 0 || index < array.length - 1);
+    const seen = new Set();
+    const updatedLines = lines.map((line) => {
+        const match = line.match(/^([A-Z0-9_]+)=/);
+        if (!match) return line;
+        const key = match[1];
+        if (!Object.prototype.hasOwnProperty.call(values, key)) return line;
+        seen.add(key);
+        return `${key}=${values[key]}`;
+    });
+
+    for (const [key, value] of Object.entries(values)) {
+        if (!seen.has(key)) {
+            updatedLines.push(`${key}=${value}`);
+        }
+    }
+
+    return `${updatedLines.join('\n')}\n`;
+}
+
+function restartFirmAsync(firmId) {
+    const serviceName = `linda-${firmId}`;
+    const command = [
+        'if docker compose version >/dev/null 2>&1; then',
+        `docker compose up -d --force-recreate ${shellQuote(serviceName)};`,
+        'elif command -v docker-compose >/dev/null 2>&1; then',
+        `docker-compose up -d --force-recreate ${shellQuote(serviceName)};`,
         'else',
         'echo "docker compose is not available" >&2;',
         'exit 127;',
