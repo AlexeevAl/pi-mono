@@ -18,13 +18,18 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@livekit/agents": "^1.4.1",
+    "@livekit/agents-plugin-deepgram": "^1.4.1",
+    "@livekit/agents-plugin-openai": "^1.4.1",
+    "@livekit/agents-plugin-silero": "^1.4.1",
     "@mariozechner/pi-agent-core": "workspace:*",
     "@mariozechner/pi-ai": "workspace:*",
     "@sinclair/typebox": "^0.34.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
-    "@hapi/boom": "^10.0.1",
     "chalk": "^5.5.0",
     "dotenv": "^16.4.7",
+    "livekit-server-sdk": "^2.15.2",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {

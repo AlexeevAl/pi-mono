@@ -5,6 +5,7 @@ import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type {
 	AgentDecision,
+	ClientChannel,
 	ClientDecideInput,
 	ClientSkillId,
 	ClubAgentContext,
@@ -197,7 +198,7 @@ export class LindaClientAgent {
 		clientId: string;
 		skillId: ClientSkillId;
 		reply: string;
-		reqOptions: { role: "client_agent"; channel: "whatsapp" | "web" };
+		reqOptions: { role: "client_agent"; channel: ClientChannel };
 	}) {
 		const postcheck = await this.control.postcheckTurn(
 			{

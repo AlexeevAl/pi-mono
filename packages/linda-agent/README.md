@@ -429,7 +429,7 @@ new WebChannel(
 Authorization: Bearer <FIRM_SHARED_SECRET>
 X-PSF-Edge-Id: <EDGE_ID>
 X-PSF-Agent-Role: client_agent | admin_agent
-X-PSF-Channel: whatsapp | telegram | web
+X-PSF-Channel: whatsapp | telegram | web | livekit
 ```
 
 ### Эндпоинты (Client)
@@ -468,6 +468,20 @@ TELEGRAM_ENABLED=false
 WEB_ENABLED=true
 WEB_ROLE=client
 WEB_PORT=3034
+```
+
+### LiveKit (Voice) запуск
+
+```env
+LIVEKIT_ENABLED=true
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_API_KEY=APIxxxxxx
+LIVEKIT_API_SECRET=SECRETxxxxxx
+LIVEKIT_AGENT_NAME=linda
+
+# Ключи для STT/TTS воркера
+DEEPGRAM_API_KEY=...
+OPENAI_API_KEY=...
 ```
 
 После старта открой `http://localhost:3034`.

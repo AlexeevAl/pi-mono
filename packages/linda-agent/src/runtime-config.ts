@@ -27,7 +27,7 @@ export function applyAgentRuntimeConfig(config: LindaRuntimeConfig, remote: Agen
 	const clientProfileId = asClientSkillId(remote.agentRuntime.clientAgent.profileId);
 	const adminProfileId = asAdminSkillId(remote.agentRuntime.firmAgent.profileId);
 	const defaultClientChannel =
-		remote.defaultChannel === "web" || remote.defaultChannel === "whatsapp"
+		remote.defaultChannel === "web" || remote.defaultChannel === "whatsapp" || remote.defaultChannel === "livekit"
 			? remote.defaultChannel
 			: config.clientAgent.defaults.channel;
 
@@ -49,6 +49,7 @@ export function applyAgentRuntimeConfig(config: LindaRuntimeConfig, remote: Agen
 			channels: {
 				whatsapp: remote.agentRuntime.clientAgent.channels.whatsapp,
 				web: remote.agentRuntime.clientAgent.channels.web,
+				livekit: (remote.agentRuntime.clientAgent.channels as any).livekit ?? true,
 			},
 			defaults: {
 				channel: defaultClientChannel,

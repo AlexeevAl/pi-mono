@@ -47,6 +47,7 @@ export function buildRuntimeConfig(skillsDir?: string): LindaRuntimeConfig {
 			channels: {
 				whatsapp: true,
 				web: true,
+				livekit: true,
 			},
 			defaults: {
 				channel: "whatsapp",

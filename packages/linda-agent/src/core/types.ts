@@ -4,8 +4,8 @@
 
 // --- Channel & Role ---
 
-export type ClubChannel = "whatsapp" | "telegram" | "web";
-export type ClientChannel = "whatsapp" | "web";
+export type ClubChannel = "whatsapp" | "telegram" | "web" | "livekit";
+export type ClientChannel = "whatsapp" | "web" | "livekit";
 export type AdminChannel = "telegram" | "web";
 
 export type LindaAgentRole = "client_agent" | "admin_agent";
@@ -121,7 +121,7 @@ export interface LindaRuntimeConfig {
 
 // --- Firm runtime config fetched from psf-engine-v2 ---
 
-export type FirmAgentChannel = "web" | "whatsapp" | "telegram" | "ops";
+export type FirmAgentChannel = "web" | "whatsapp" | "telegram" | "ops" | "livekit";
 
 export interface FirmAgentBinding {
 	enabled: boolean;

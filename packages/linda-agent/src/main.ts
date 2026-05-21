@@ -40,6 +40,7 @@ if (fs.existsSync(settingsPath)) {
 import { LindaAdminAgent } from "./agents/LindaAdminAgent.js";
 // ... (rest of imports)
 import { LindaClientAgent } from "./agents/LindaClientAgent.js";
+import { LiveKitChannel } from "./channels/LiveKitChannel.js";
 import { TelegramChannel } from "./channels/TelegramChannel.js";
 import { WebChannel } from "./channels/WebChannel.js";
 import { WhatsAppChannel } from "./channels/WhatsAppChannel.js";
@@ -128,6 +129,10 @@ async function main(): Promise<void> {
 	const telegramEnabled =
 		process.env.TELEGRAM_ENABLED !== "false" && config.adminAgent.enabled && config.adminAgent.channels.telegram;
 	const webEnabled = parseBoolean(optionalEnv("WEB_ENABLED"), false);
+	const livekitEnabled =
+		process.env.LIVEKIT_ENABLED !== "false" &&
+		config.clientAgent.enabled &&
+		(config.clientAgent.channels as any).livekit;
 
 	const channels: Array<{ start(): Promise<void>; stop(): void }> = [];
 	let whatsappChannel: WhatsAppChannel | undefined;
@@ -222,6 +227,22 @@ async function main(): Promise<void> {
 		}
 	} else {
 		console.log(`[Web] disabled (WEB_ENABLED=false)`);
+	}
+
+	if (livekitEnabled) {
+		const url = optionalEnv("LIVEKIT_URL");
+		const apiKey = optionalEnv("LIVEKIT_API_KEY");
+		const apiSecret = optionalEnv("LIVEKIT_API_SECRET");
+
+		if (!url || !apiKey || !apiSecret) {
+			console.warn("[LiveKit] WARNING: Missing LIVEKIT_URL, API_KEY or API_SECRET. Channel disabled.");
+		} else {
+			console.log(`[LiveKit] url     = ${url}`);
+			const livekitChannel = new LiveKitChannel({ url, apiKey, apiSecret }, clientAgent);
+			channels.push(livekitChannel);
+		}
+	} else {
+		console.log(`[LiveKit] disabled (LIVEKIT_ENABLED=false or not in firm config)`);
 	}
 
 	console.log("\n");
