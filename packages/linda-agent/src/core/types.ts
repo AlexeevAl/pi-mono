@@ -45,6 +45,8 @@ export type ClientSkillId =
 	| "annual_plan_tracking"
 	| "objection_handling"
 	| "human_handoff"
+	| "clinical_triage"
+	| "missed_call_triage"
 	| "manager"
 	| "none";
 

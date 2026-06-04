@@ -350,6 +350,62 @@ enabledSkills:
       - remove_required_disclaimer
       - soften_policy_warning_for_operator
 
+  - id: post_procedure_checkin
+    type: client_execution_skill
+    purpose: Collect feedback and manage post-procedure review links.
+    triggerConditions:
+      - activeSkill from control engine is post_procedure_checkin.
+    requiredInputs:
+      - sessionId
+    outputs:
+      - collectedScore
+      - reviewLinkSent
+    allowedActions:
+      - ask_clarifying_question
+      - send_review_link
+      - update_lead_fields
+
+  - id: reactivation
+    type: client_execution_skill
+    purpose: Reactivate dormant patients with personalized follow-up.
+    triggerConditions:
+      - activeSkill from control engine is reactivation.
+    requiredInputs:
+      - sessionId
+    outputs:
+      - reactivationStatus
+    allowedActions:
+      - ask_clarifying_question
+      - update_lead_fields
+
+  - id: clinical_triage
+    type: client_execution_skill
+    purpose: Perform pre-visit clinical triage and gather details of complaints/allergies.
+    triggerConditions:
+      - activeSkill from control engine is clinical_triage.
+    requiredInputs:
+      - sessionId
+    outputs:
+      - triageCompleted
+      - urgentCaseFlag
+    allowedActions:
+      - ask_clarifying_question
+      - update_lead_fields
+      - escalate_to_human
+
+  - id: missed_call_triage
+    type: client_execution_skill
+    purpose: Engage patient via WhatsApp following a missed call and triage their intent.
+    triggerConditions:
+      - activeSkill from control engine is missed_call_triage.
+    requiredInputs:
+      - sessionId
+    outputs:
+      - triageCompleted
+    allowedActions:
+      - ask_clarifying_question
+      - update_lead_fields
+
 handoffPacketSchema:
   type: object
   required:

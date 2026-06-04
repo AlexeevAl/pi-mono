@@ -43,6 +43,10 @@ export function buildRuntimeConfig(skillsDir?: string): LindaRuntimeConfig {
 				"booking_consultation",
 				"objection_handling",
 				"human_handoff",
+				"post_procedure_checkin",
+				"reactivation",
+				"clinical_triage",
+				"missed_call_triage",
 			],
 			channels: {
 				whatsapp: true,
