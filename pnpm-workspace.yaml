@@ -1,6 +1,7 @@
 
 packages:
   - "packages/*"
+  - "packages/wa-translate-app/frontend"
   - "packages/web-ui/example"
   - "packages/coding-agent/examples/extensions/with-deps"
   - "packages/coding-agent/examples/extensions/custom-provider-anthropic"

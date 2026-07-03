@@ -22,9 +22,19 @@ export class TranslationStorage {
 	private state: TranslatorState;
 	private readonly filePath: string;
 
+	public getState(): TranslatorState {
+		return this.state;
+	}
+
 	constructor() {
 		// Store in project root or somewhere convenient
-		this.filePath = path.join(__dirname, "..", ".translator-state.json");
+		const dataDir = process.env.WA_DATA_DIR || path.join(__dirname, "..");
+		try {
+			fs.mkdirSync(dataDir, { recursive: true });
+		} catch (err) {
+			console.error("[Storage] Failed to create data directory:", err);
+		}
+		this.filePath = path.join(dataDir, ".translator-state.json");
 		this.state = this.load();
 	}
 

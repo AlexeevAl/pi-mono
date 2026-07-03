@@ -8,6 +8,7 @@ import baileysPkg, {
 const makeWASocket = (baileysPkg as any).default || baileysPkg;
 
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { Boom } from "@hapi/boom";
 import qrcode from "qrcode-terminal";
@@ -72,7 +73,8 @@ function addContext(chatId: string, role: "user" | "assistant", content: string)
 }
 
 async function connectToWhatsApp() {
-	const authDir = path.join(__dirname, "..", "auth_info");
+	const dataDir = process.env.WA_DATA_DIR || path.join(__dirname, "..");
+	const authDir = path.join(dataDir, "auth_info");
 	const { state, saveCreds } = await useMultiFileAuthState(authDir);
 	const { version, isLatest } = await fetchLatestBaileysVersion();
 	console.log(`[WA-Translate] Using Baileys v${version.join(".")}, latest: ${isLatest}`);
@@ -103,11 +105,13 @@ async function connectToWhatsApp() {
 
 		if (qr) {
 			console.log("[WA-Translate] Scan the QR code below to connect:");
+			console.log(`[QR_CODE] ${qr}`);
 			qrcode.generate(qr, { small: true });
 		}
 
 		if (connection === "close") {
 			const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+			console.log("[STATUS] disconnected");
 			console.log(
 				"[WA-Translate] Connection closed due to",
 				lastDisconnect?.error,
@@ -120,11 +124,11 @@ async function connectToWhatsApp() {
 				console.log("[WA-Translate] Logged out. Please delete auth_info directory and restart.");
 			}
 		} else if (connection === "open") {
+			console.log("[STATUS] connected");
 			console.log("[WA-Translate] ✅ Connected to WhatsApp.");
+			sendChatsUpdate();
 		}
 	});
-
-	const mySentMessageIds = new Set<string>();
 
 	sock.ev.on("messages.upsert", async (m: any) => {
 		if (m.type !== "notify") return;
@@ -139,95 +143,46 @@ async function connectToWhatsApp() {
 
 			if (!trimmedText) continue;
 
-			// Skip translating our own translation replies
-			if (isFromMe && mySentMessageIds.has(msg.key.id || "")) {
-				mySentMessageIds.delete(msg.key.id || "");
-				continue;
-			}
-
-			// Commands
-			if (
-				isFromMe &&
-				(trimmedText.startsWith("/translate") ||
-					trimmedText.startsWith("/lang") ||
-					trimmedText.startsWith("/gender"))
-			) {
-				if (trimmedText === "/translate off") {
-					storage.disableChat(chatId);
-					await sock.sendMessage(chatId, { text: "📴 Translation disabled." });
-				} else if (trimmedText.startsWith("/translate on") || trimmedText.startsWith("/lang")) {
-					const parts = trimmedText.split(" ");
-					let lang = "he";
-					if (parts.length > 1 && parts[1] !== "on") lang = parts[1];
-					else if (parts.length > 2) lang = parts[2];
-
-					storage.enableChat(chatId, lang);
-					await sock.sendMessage(chatId, {
-						text: `🔛 Translation enabled. Outgoing target: ${getFlag(lang)} ${lang.toUpperCase()}`,
-					});
-				} else if (trimmedText.startsWith("/gender")) {
-					const parts = trimmedText.split(" ");
-					if (parts.length > 1) {
-						const g = parts[1].toLowerCase();
-						if (g === "f" || g === "female" || g === "женщина") {
-							storage.setContactGender(chatId, "female");
-							await sock.sendMessage(chatId, {
-								text: "👩 Contact gender set to FEMALE (Женщина). Translations will use feminine forms for 'you'.",
-							});
-						} else if (g === "m" || g === "male" || g === "мужчина") {
-							storage.setContactGender(chatId, "male");
-							await sock.sendMessage(chatId, {
-								text: "👨 Contact gender set to MALE (Мужчина). Translations will use masculine forms for 'you'.",
-							});
-						}
-					}
-				}
-				continue;
-			}
-
 			// Safety check: Never translate commands
 			if (trimmedText.startsWith("/")) continue;
 
-			let chatConfig = storage.getChatConfig(chatId);
+			const chatConfig = storage.getChatConfig(chatId);
 			const context = chatContexts.get(chatId) || [];
 			const detected = detectDominantLang(trimmedText);
 
-			if (!isFromMe) {
-				// Incoming → translate to Russian. Skip if already Russian.
-				if (langMatches(detected, "Russian")) continue;
+			if (chatConfig?.enabled) {
+				if (!isFromMe) {
+					// Incoming → translate to Russian. Skip if already Russian.
+					if (langMatches(detected, "Russian")) continue;
 
-				const result = await translator.translate(
-					trimmedText,
-					"Russian",
-					context,
-					chatConfig?.contactGender || "male",
-				);
-				if (result.ok) {
-					addContext(chatId, "user", trimmedText);
-					if (!chatConfig?.enabled) {
-						console.log(`[WA-Translate] Auto-activating translation for ${chatId}`);
-						storage.enableChat(chatId, "he");
-						chatConfig = storage.getChatConfig(chatId);
+					const result = await translator.translate(
+						trimmedText,
+						"Russian",
+						context,
+						chatConfig.contactGender || "male",
+					);
+					if (result.ok) {
+						addContext(chatId, "user", trimmedText);
+						const replyText = `${getFlag("ru")} ${result.text}`;
+						console.log(
+							`[TRANSLATION] ${JSON.stringify({
+								chatId,
+								type: "incoming",
+								original: trimmedText,
+								translated: replyText,
+								timestamp: Date.now(),
+							})}`,
+						);
+						addContext(chatId, "assistant", result.text);
 					}
-
-					const replyText = `${getFlag("ru")} ${result.text}`;
-					const sentMsg = await sock.sendMessage(chatId, { text: replyText }, { quoted: msg });
-					if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
-					addContext(chatId, "assistant", result.text);
-				} else if (result.reason === "error") {
-					const sentMsg = await sock.sendMessage(chatId, { text: "⚠️ Translation failed." }, { quoted: msg });
-					if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
-				}
-			} else {
-				// Outgoing message
-				if (chatConfig?.enabled) {
+				} else {
+					// Outgoing message → translate to target language
 					const targetLang = chatConfig.targetLang;
 					const langName = targetLang.toLowerCase() === "he" ? "Hebrew" : targetLang;
 
 					// Skip if text already in target language
 					if (langMatches(detected, langName)) continue;
 
-					console.log(`[WA-Translate] Outgoing message triggered for translation to ${targetLang}`);
 					const result = await translator.translate(
 						trimmedText,
 						langName,
@@ -237,19 +192,55 @@ async function connectToWhatsApp() {
 
 					if (result.ok) {
 						addContext(chatId, "user", trimmedText);
-						console.log(`[WA-Translate] Sending translation: ${result.text}`);
 						const replyText = `${getFlag(targetLang)} ${result.text}`;
-						const sentMsg = await sock.sendMessage(chatId, { text: replyText }, { quoted: msg });
-						if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
+						console.log(
+							`[TRANSLATION] ${JSON.stringify({
+								chatId,
+								type: "outgoing",
+								original: trimmedText,
+								translated: replyText,
+								timestamp: Date.now(),
+							})}`,
+						);
 						addContext(chatId, "assistant", result.text);
-					} else if (result.reason === "error") {
-						const sentMsg = await sock.sendMessage(chatId, { text: "⚠️ Translation failed." }, { quoted: msg });
-						if (sentMsg?.key?.id) mySentMessageIds.add(sentMsg.key.id);
 					}
 				}
 			}
 		}
 	});
 }
+
+function sendChatsUpdate() {
+	console.log(`[CHATS] ${JSON.stringify(storage.getState())}`);
+}
+
+// Stdin commands listener
+const rl = readline.createInterface({
+	input: process.stdin,
+	output: process.stdout,
+	terminal: false,
+});
+
+rl.on("line", (line) => {
+	try {
+		const msg = JSON.parse(line.trim());
+		if (msg.type === "set_chat_config") {
+			const { chatId, config } = msg;
+			if (config.enabled) {
+				storage.enableChat(chatId, config.targetLang);
+			} else {
+				storage.disableChat(chatId);
+			}
+			if (config.contactGender) {
+				storage.setContactGender(chatId, config.contactGender);
+			}
+			sendChatsUpdate();
+		} else if (msg.type === "get_chats") {
+			sendChatsUpdate();
+		}
+	} catch (err) {
+		console.error("[WA-Translate Error] Stdin message parsing failed:", err);
+	}
+});
 
 connectToWhatsApp();

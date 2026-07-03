@@ -28,11 +28,11 @@ async function build() {
 
   const triple = getTargetTriple();
   const binaryName = `wa-translate-backend-${triple}${process.platform === 'win32' ? '.exe' : ''}`;
+  const destPath = join(APP_BINARIES, binaryName);
   
-  // В РЕАЛЬНОСТИ: здесь мы бы использовали pkg или bun для создания бинарника.
-  // Для простоты сейчас мы создадим заглушку или просто скопируем ноду (но это не очень правильно).
-  // На GitHub Actions мы будем использовать bun build --compile.
-  
+  // Copy current Node.js executable as the sidecar binary placeholder
+  copyFileSync(process.execPath, destPath);
+  console.log(`Copied node executable to ${destPath}`);
   console.log(`Ready for packaging as ${binaryName}`);
 }
 
