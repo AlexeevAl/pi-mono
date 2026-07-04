@@ -1,5 +1,5 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
-import { createAgent, extractTextContent } from "../core/base-agent.js";
+import { createAgent, extractLastAssistantText } from "../core/base-agent.js";
 import { applyClientControlDecision } from "../core/client-control-context.js";
 import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
@@ -180,8 +180,7 @@ export class LindaClientAgent {
 		}
 
 		// 7. Extract reply
-		const lastMsg = agent.state.messages[agent.state.messages.length - 1];
-		const reply = extractTextContent(lastMsg);
+		const reply = extractLastAssistantText(agent.state.messages);
 		const checkedReply = await this.postcheckClientReply({
 			auditEventId: control.auditEventId,
 			clientId: input.clientId,

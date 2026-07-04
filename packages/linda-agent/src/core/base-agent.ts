@@ -47,3 +47,17 @@ export function extractTextContent(message: AgentMessage | undefined): string {
 	}
 	return "";
 }
+
+/**
+ * Returns the newest non-empty assistant text, ignoring trailing tool results.
+ * Some providers finish a tool loop with toolResult as the last state message.
+ */
+export function extractLastAssistantText(messages: readonly AgentMessage[]): string {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== "assistant") continue;
+		const text = extractTextContent(message);
+		if (text.trim()) return text;
+	}
+	return "";
+}
