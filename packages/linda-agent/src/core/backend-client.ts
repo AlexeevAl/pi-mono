@@ -14,6 +14,16 @@ export interface ClientConversationMessage {
 	createdAt: string;
 }
 
+export interface LindaCronJob {
+	id: string;
+	firmId: string;
+	name: string;
+	agentRole: "client_agent" | "admin_agent";
+	channel: "web" | "whatsapp" | "telegram";
+	recipientId: string;
+	prompt: string;
+}
+
 /**
  * Shared HTTP client for all psf-engine-v2 API calls.
  * Used by both LindaClientAgent and LindaAdminAgent.
@@ -39,6 +49,35 @@ export class ClinicBackendClient {
 		}
 
 		return (await response.json()) as AgentRuntimeConfig;
+	}
+
+	public async claimCronJobs(): Promise<LindaCronJob[]> {
+		const url = new URL("/api/agent/cron-jobs", this.config.baseUrl);
+		url.searchParams.append("firmId", this.config.firmId);
+		const response = await fetch(url, {
+			method: "POST",
+			headers: this.buildHeaders({ role: "client_agent", channel: "web" }),
+		});
+		if (!response.ok) throw new Error(`[backend] cron claim failed: ${response.status} ${await response.text()}`);
+		const data = (await response.json()) as { jobs?: LindaCronJob[] };
+		return data.jobs ?? [];
+	}
+
+	public async completeCronJob(input: {
+		jobId: string;
+		status: "succeeded" | "failed";
+		result?: string;
+		error?: string;
+	}): Promise<void> {
+		const url = new URL(`/api/agent/cron-jobs/${encodeURIComponent(input.jobId)}/result`, this.config.baseUrl);
+		url.searchParams.append("firmId", this.config.firmId);
+		const response = await fetch(url, {
+			method: "POST",
+			headers: this.buildHeaders({ role: "client_agent", channel: "web" }),
+			body: JSON.stringify(input),
+		});
+		if (!response.ok)
+			throw new Error(`[backend] cron completion failed: ${response.status} ${await response.text()}`);
 	}
 
 	// --- Client context ---

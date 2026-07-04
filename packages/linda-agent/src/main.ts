@@ -46,6 +46,7 @@ import { WebChannel } from "./channels/WebChannel.js";
 import { WhatsAppChannel } from "./channels/WhatsAppChannel.js";
 import { buildRuntimeConfig } from "./config.js";
 import { ClinicBackendClient } from "./core/backend-client.js";
+import { LindaCronExecutor } from "./core/cron-executor.js";
 import { applyAgentRuntimeConfig } from "./runtime-config.js";
 
 // ============================================================================
@@ -135,6 +136,9 @@ async function main(): Promise<void> {
 		(config.clientAgent.channels as any).livekit;
 
 	const channels: Array<{ start(): Promise<void>; stop(): void }> = [];
+	if (parseBoolean(optionalEnv("CRON_ENABLED"), true)) {
+		channels.push(new LindaCronExecutor(config.backend, { clientAgent, adminAgent }));
+	}
 	let whatsappChannel: WhatsAppChannel | undefined;
 	let telegramChannel: TelegramChannel | undefined;
 
