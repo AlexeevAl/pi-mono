@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it } from "vitest";
-import { extractLastAssistantText, extractTextContent } from "../src/core/base-agent.js";
+import { extractLastAssistantText, extractTextContent, summarizeAgentMessages } from "../src/core/base-agent.js";
 
 describe("agent response extraction", () => {
 	it("extracts text content from an assistant message", () => {
@@ -29,6 +29,18 @@ describe("agent response extraction", () => {
 		];
 
 		expect(extractLastAssistantText(messages)).toBe("Fallback");
+	});
+
+	it("summarizes message structure without including message text", () => {
+		const messages = [
+			asAgentMessage({ role: "user", content: "private patient text" }),
+			asAgentMessage({ role: "assistant", content: [{ type: "thinking", thinking: "private reasoning" }] }),
+		];
+
+		const summary = summarizeAgentMessages(messages);
+
+		expect(summary).toBe("user:string -> assistant:[thinking]");
+		expect(summary).not.toContain("private");
 	});
 });
 

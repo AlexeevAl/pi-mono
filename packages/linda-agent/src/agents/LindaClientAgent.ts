@@ -1,5 +1,5 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
-import { createAgent, extractLastAssistantText } from "../core/base-agent.js";
+import { createAgent, extractLastAssistantText, summarizeAgentMessages } from "../core/base-agent.js";
 import { applyClientControlDecision } from "../core/client-control-context.js";
 import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
@@ -180,7 +180,11 @@ export class LindaClientAgent {
 		}
 
 		// 7. Extract reply
-		const reply = extractLastAssistantText(agent.state.messages);
+		const extractedReply = extractLastAssistantText(agent.state.messages);
+		const reply = extractedReply.trim() || this.buildEmptyReplyFallback(effectiveContext);
+		if (!extractedReply.trim()) {
+			console.warn(`[Agent] Empty assistant reply. Message shape: ${summarizeAgentMessages(agent.state.messages)}`);
+		}
 		const checkedReply = await this.postcheckClientReply({
 			auditEventId: control.auditEventId,
 			clientId: input.clientId,
@@ -221,6 +225,13 @@ export class LindaClientAgent {
 		if (enabled.includes(skill)) return skill;
 		// fallback to manager persona
 		return "manager";
+	}
+
+	private buildEmptyReplyFallback(context: ClubAgentContext): string {
+		if (context.activeSkill === "profile_enrichment") {
+			return "Чтобы помочь точнее, расскажите, пожалуйста, какая у вас сейчас главная цель по уходу или процедурам?";
+		}
+		return "Не удалось сформировать полный ответ. Пожалуйста, повторите сообщение, и я попробую ещё раз.";
 	}
 
 	private buildSystemPrompt(context: ClubAgentContext, skillContent?: string): string {

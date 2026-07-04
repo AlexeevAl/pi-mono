@@ -61,3 +61,19 @@ export function extractLastAssistantText(messages: readonly AgentMessage[]): str
 	}
 	return "";
 }
+
+export function summarizeAgentMessages(messages: readonly AgentMessage[]): string {
+	return messages
+		.map((message) => {
+			if (!("content" in message) || !message.content) return `${message.role}:empty`;
+			if (typeof message.content === "string") return `${message.role}:string`;
+			if (Array.isArray(message.content)) {
+				const types = message.content
+					.map((block) => (block && typeof block === "object" && "type" in block ? String(block.type) : "unknown"))
+					.join(",");
+				return `${message.role}:[${types}]`;
+			}
+			return `${message.role}:object`;
+		})
+		.join(" -> ");
+}
