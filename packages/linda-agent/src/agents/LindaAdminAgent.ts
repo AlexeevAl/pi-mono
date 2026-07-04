@@ -1,5 +1,5 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
-import { createAgent, extractLastAssistantText } from "../core/base-agent.js";
+import { assertAgentRunSucceeded, createAgent, extractLastAssistantText, getLlmApiKey } from "../core/base-agent.js";
 import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
 import type { AdminDecideInput, AdminSkillId, AgentDecision, LindaRuntimeConfig } from "../core/types.js";
@@ -84,7 +84,7 @@ export class LindaAdminAgent {
 			llm: this.config.llm,
 			systemPrompt,
 			tools,
-			getApiKey: async (provider) => process.env[`${provider.toUpperCase()}_API_KEY`],
+			getApiKey: async (provider) => getLlmApiKey(provider),
 		});
 
 		// 4. Subscribe shared hooks
@@ -104,6 +104,7 @@ export class LindaAdminAgent {
 
 		try {
 			await agent.prompt(enrichedText);
+			assertAgentRunSucceeded(agent.state);
 		} finally {
 			unsub();
 		}

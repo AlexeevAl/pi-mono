@@ -86,6 +86,13 @@ upsert_env "$FIRM_DIR/.env" "WEB_ROLE" "client"
 upsert_env "$FIRM_DIR/.env" "WEB_PORT" "3034"
 upsert_env "$FIRM_DIR/.env" "WHATSAPP_AUTH_DIR" "/app/packages/linda-agent/data/wa-auth"
 
+for api_key_name in OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY AI_GATEWAY_API_KEY; do
+    api_key_value=${!api_key_name:-}
+    if [ -n "$api_key_value" ]; then
+        upsert_env "$FIRM_DIR/.env" "$api_key_name" "$api_key_value"
+    fi
+done
+
 if [ ! -f "$COMPOSE_FILE" ]; then
     cat <<EOF > "$COMPOSE_FILE"
 services:

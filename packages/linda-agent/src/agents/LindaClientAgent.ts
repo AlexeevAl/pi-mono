@@ -1,5 +1,11 @@
 import { ClinicBackendClient } from "../core/backend-client.js";
-import { createAgent, extractLastAssistantText, summarizeAgentMessages } from "../core/base-agent.js";
+import {
+	assertAgentRunSucceeded,
+	createAgent,
+	extractLastAssistantText,
+	getLlmApiKey,
+	summarizeAgentMessages,
+} from "../core/base-agent.js";
 import { applyClientControlDecision } from "../core/client-control-context.js";
 import { ControlBackendClient } from "../core/control-client.js";
 import { SkillsLoader } from "../core/skills-loader.js";
@@ -153,7 +159,7 @@ export class LindaClientAgent {
 			llm: this.config.llm,
 			systemPrompt,
 			tools,
-			getApiKey: async (provider) => process.env[`${provider.toUpperCase()}_API_KEY`],
+			getApiKey: async (provider) => getLlmApiKey(provider),
 		});
 
 		// 5. Subscribe shared hooks
@@ -170,6 +176,7 @@ export class LindaClientAgent {
 		try {
 			console.log(`[Agent] Prompting LLM with: "${input.text}"`);
 			await agent.prompt(input.text);
+			assertAgentRunSucceeded(agent.state);
 			console.log(`[Agent] LLM response received.`);
 		} catch (err: any) {
 			console.error(`[Agent] LLM prompt error for client ${input.clientId}:`, err.message || err);

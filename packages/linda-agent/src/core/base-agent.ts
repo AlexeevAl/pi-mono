@@ -1,6 +1,6 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Agent, type AgentMessage } from "@mariozechner/pi-agent-core";
-import { getModel } from "@mariozechner/pi-ai";
+import { getEnvApiKey, getModel } from "@mariozechner/pi-ai";
 import type { LlmConfig } from "./types.js";
 
 export interface CreateAgentOptions {
@@ -31,6 +31,16 @@ export function createAgent(options: CreateAgentOptions): Agent {
 			messages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult"),
 		getApiKey,
 	});
+}
+
+export function getLlmApiKey(provider: string): string | undefined {
+	return getEnvApiKey(provider);
+}
+
+export function assertAgentRunSucceeded(state: { errorMessage?: string }): void {
+	if (state.errorMessage) {
+		throw new Error(`LLM request failed: ${state.errorMessage}`);
+	}
 }
 
 /**
