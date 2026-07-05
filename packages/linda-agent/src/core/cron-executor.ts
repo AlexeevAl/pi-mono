@@ -58,13 +58,18 @@ export class LindaCronExecutor {
 							channel: "web",
 							metadata: { cronSkillId: job.skillId },
 						});
-			await this.backend.completeCronJob({ jobId: job.id, status: "succeeded", result: decision.reply });
+			await this.backend.completeCronJob({
+				jobId: job.id,
+				runId: job.runId,
+				status: "succeeded",
+				result: decision.reply,
+			});
 			console.log(`[Cron] completed ${job.id}`);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			console.error(`[Cron] failed ${job.id}: ${message}`);
 			await this.backend
-				.completeCronJob({ jobId: job.id, status: "failed", error: message })
+				.completeCronJob({ jobId: job.id, runId: job.runId, status: "failed", error: message })
 				.catch((reportError) => {
 					console.error("[Cron] failed to report result:", reportError);
 				});

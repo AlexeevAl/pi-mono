@@ -23,6 +23,7 @@ export interface LindaCronJob {
 	skillId: string;
 	recipientId: string;
 	prompt: string;
+	runId?: string;
 }
 
 /**
@@ -66,6 +67,7 @@ export class ClinicBackendClient {
 
 	public async completeCronJob(input: {
 		jobId: string;
+		runId?: string;
 		status: "succeeded" | "failed";
 		result?: string;
 		error?: string;
