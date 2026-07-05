@@ -46,8 +46,18 @@ export class LindaCronExecutor {
 			if (job.channel !== "web") throw new Error(`cron channel not connected yet: ${job.channel}`);
 			const decision =
 				job.agentRole === "admin_agent"
-					? await this.agents.adminAgent.decide({ adminId: job.recipientId, text: job.prompt, channel: "web" })
-					: await this.agents.clientAgent.decide({ clientId: job.recipientId, text: job.prompt, channel: "web" });
+					? await this.agents.adminAgent.decide({
+							adminId: job.recipientId,
+							text: job.prompt,
+							channel: "web",
+							metadata: { cronSkillId: job.skillId },
+						})
+					: await this.agents.clientAgent.decide({
+							clientId: job.recipientId,
+							text: job.prompt,
+							channel: "web",
+							metadata: { cronSkillId: job.skillId },
+						});
 			await this.backend.completeCronJob({ jobId: job.id, status: "succeeded", result: decision.reply });
 			console.log(`[Cron] completed ${job.id}`);
 		} catch (error) {

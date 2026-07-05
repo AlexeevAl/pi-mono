@@ -68,7 +68,11 @@ export class LindaAdminAgent {
 		}
 
 		// 1. Load admin persona
-		const skillId = this.resolveSkillId(control.activeSkillId);
+		const requestedCronSkill =
+			typeof input.metadata?.cronSkillId === "string" ? input.metadata.cronSkillId : undefined;
+		const forcedSkillId = this.config.adminAgent.enabledSkills.find((skillId) => skillId === requestedCronSkill);
+		const skillId = forcedSkillId ?? this.resolveSkillId(control.activeSkillId);
+		if (forcedSkillId) console.log(`[Agent] Cron forced skill: ${forcedSkillId}`);
 		const skill = this.skills.getSkill(skillId);
 		const systemPrompt = this.buildSystemPrompt(skill?.content, input.targetClientId);
 

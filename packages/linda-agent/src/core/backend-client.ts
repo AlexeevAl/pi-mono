@@ -20,6 +20,7 @@ export interface LindaCronJob {
 	name: string;
 	agentRole: "client_agent" | "admin_agent";
 	channel: "web" | "whatsapp" | "telegram";
+	skillId: string;
 	recipientId: string;
 	prompt: string;
 }

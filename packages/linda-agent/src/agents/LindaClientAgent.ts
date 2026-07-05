@@ -77,9 +77,16 @@ export class LindaClientAgent {
 		}
 		console.log(`[Agent] Context received. Active skill: ${context.activeSkill}`);
 
-		const effectiveContext = applyClientControlDecision(context, control);
+		const requestedCronSkill =
+			typeof input.metadata?.cronSkillId === "string" ? input.metadata.cronSkillId : undefined;
+		const forcedSkillId = this.config.clientAgent.enabledSkills.find((skillId) => skillId === requestedCronSkill);
+		const controlledContext = applyClientControlDecision(context, control);
+		const effectiveContext = forcedSkillId
+			? { ...controlledContext, activeSkill: forcedSkillId, allowedSkills: [forcedSkillId] }
+			: controlledContext;
+		if (forcedSkillId) console.log(`[Agent] Cron forced skill: ${forcedSkillId}`);
 
-		if (this.isApprovalStatusQuestion(input.text)) {
+		if (!forcedSkillId && this.isApprovalStatusQuestion(input.text)) {
 			const profileResponse = await this.backend.getClientProfile(input.clientId, reqOptions);
 			const approval = this.resolveApprovedAppointmentStatus(profileResponse);
 			if (approval) {
@@ -98,13 +105,15 @@ export class LindaClientAgent {
 			}
 		}
 
-		const selectedSkillProposal = resolveClientSkillProposal({
-			text: input.text,
-			context: effectiveContext,
-			auditEventId: control.auditEventId,
-			sessionId: input.clientId,
-			agentId: `${this.config.shared.firmId}:client_agent`,
-		});
+		const selectedSkillProposal = forcedSkillId
+			? undefined
+			: resolveClientSkillProposal({
+					text: input.text,
+					context: effectiveContext,
+					auditEventId: control.auditEventId,
+					sessionId: input.clientId,
+					agentId: `${this.config.shared.firmId}:client_agent`,
+				});
 		if (selectedSkillProposal) {
 			console.log(`[Agent] Selected skill proposal created: ${effectiveContext.activeSkill}`);
 			const postcheck = await this.control.postcheckTurn(selectedSkillProposal.proposal, reqOptions);
