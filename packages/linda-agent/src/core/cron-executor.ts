@@ -11,7 +11,7 @@ export class LindaCronExecutor {
 	constructor(
 		backend: BackendConfig,
 		private readonly agents: { clientAgent: LindaClientAgent; adminAgent: LindaAdminAgent },
-		private readonly pollIntervalMs = 10_000,
+		private readonly pollIntervalMs = Number(process.env.CRON_POLL_INTERVAL_MS) || 60_000,
 	) {
 		this.backend = new ClinicBackendClient(backend);
 	}
